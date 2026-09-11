@@ -4,7 +4,12 @@ A LangGraph-first biomedical Literature-Based Discovery (LBD) multi-agent resear
 
 ## Current scope
 
-This repository currently focuses on the **agent/state-graph MVP only**. The retrieval-augmented data layer (entity/relation graph and document/evidence graph) is intentionally mocked for now and will be implemented later.
+The repository currently contains two working layers:
+
+1. a cyclic LangGraph discovery-state MVP;
+2. an initial online biomedical tool layer backed by NCBI E-utilities.
+
+The local RAG / vector index / full biomedical KG are **not implemented yet**.
 
 The core discovery loop is:
 
@@ -21,6 +26,7 @@ The project uses:
 - `uv` for Python/project management
 - `LangGraph` for stateful cyclic orchestration
 - DeepSeek API for the current LLM-backed agents
+- NCBI E-utilities for online PubMed and MeSH access
 - `.env` for local API configuration (never committed)
 - `einops` and `einx` reserved for later tensor/vector transformations
 
@@ -31,30 +37,38 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-Edit `.env` and add your DeepSeek key:
+Fill your own values in `.env` as needed. `DEEPSEEK_API_KEY`, `NCBI_EMAIL`, and `NCBI_API_KEY` are intentionally blank in the repository.
 
-```bash
-DEEPSEEK_API_KEY=your_key_here
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
-```
-
-Test the API first:
+### Test DeepSeek
 
 ```bash
 uv run multiagent --smoke-test
 ```
 
-Expected output:
-
-```text
-DEEPSEEK_OK
-```
-
-Then run the LangGraph system:
+### Test the LangGraph loop
 
 ```bash
 uv run multiagent --target "Migraine" --cutoff 1985
+```
+
+### Test online biomedical tools
+
+```bash
+uv run multiagent-tools --query "migraine magnesium" --cutoff 1985 --entity "Migraine"
+```
+
+Current online tools expose:
+
+- temporal PubMed literature search;
+- PubMed entity-pair evidence retrieval;
+- pre-cutoff pair-mention counting;
+- MeSH entity lookup.
+
+The cutoff is enforced in the PubMed query itself. Entity-pair co-mentions are treated only as candidate evidence, not as proof of a typed or causal biomedical relation.
+
+### Run tests
+
+```bash
 uv run pytest -q
 ```
 
