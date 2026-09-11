@@ -92,17 +92,81 @@ This can produce a **topic-aware evidence cache**, where cached entries store no
 
 LDA itself is not intended as a standalone contribution. The intended role is a lightweight context-management component inside **ABC-aware routing + evidence cache + adaptive compute**.
 
+### 5. Structured Sparse A2A Communication
+
+Do not treat A2A as a standalone protocol contribution. Instead, use **LBD-specific structured communication** between agents so that they exchange typed discovery state rather than long free-form histories.
+
+A candidate message schema is:
+
+```text
+DiscoveryMessage {
+  abc_path,
+  relation_under_test,
+  evidence_ids,
+  support_score,
+  contradiction_score,
+  novelty_status,
+  uncertainty,
+  requested_action,
+  provenance,
+  cache_references
+}
+```
+
+Examples:
+
+```text
+Explorer -> Verifier:
+(B, C, evidence_ids, uncertainty, request=verify)
+
+Verifier -> Critic:
+(support, contradiction, novelty, confidence, provenance)
+```
+
+A lightweight message router may decide:
+
+- which observations are worth communicating;
+- whether to send raw evidence, a compact summary, or a cache reference;
+- whether another agent should be triggered at all;
+- which parts of the current ABC state are relevant to the receiving agent.
+
+Conceptually:
+
+```text
+P(m_i | S_t, agent_src, agent_dst)
+```
+
+This turns communication into another sparse resource allocation problem. The intended framing is therefore not generic A2A, but **ABC-aware structured A2A + selective communication + evidence/cache references**.
+
+This yields a unified sparse-system view:
+
+```text
+Sparse Evidence
++ Sparse Compute
++ Sparse Communication
+```
+
+Useful communication-efficiency metrics include:
+
+- communication tokens;
+- number of inter-agent messages;
+- duplicated evidence transmitted;
+- cache-reference hit rate;
+- discovery quality under fixed communication budgets.
+
+Natural baselines include full shared context, free-form A2A, structured A2A without routing, and structured sparse A2A.
+
 ### Current framing
 
 A possible umbrella term is:
 
 **Sparse Agentic LBD**
 
-with two tightly connected method contributions:
+with two primary method contributions:
 
 1. **ABC-State-Conditioned Evidence Routing**: decide which evidence is worth expensive reasoning.
 2. **Cache-Aware Sparse Discovery Policy**: decide what to retrieve, reuse, verify, explore, and how much compute to spend.
 
-Topic-aware context management is treated as a supporting mechanism rather than an independent contribution.
+Topic-aware context management and structured sparse A2A are treated as supporting mechanisms that strengthen the same sparse-discovery story rather than as disconnected standalone claims.
 
-These ideas should be evaluated against full-retrieval/all-agent baselines, fixed Top-K, generic rerankers, no-cache, LRU/semantic-cache baselines, and generic learned routers, while reporting both discovery quality and compute/tool/token cost.
+These ideas should be evaluated against full-retrieval/all-agent baselines, fixed Top-K, generic rerankers, no-cache, LRU/semantic-cache baselines, generic learned routers, and communication-routing baselines, while reporting both discovery quality and compute/tool/token/communication cost.
