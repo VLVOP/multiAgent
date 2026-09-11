@@ -10,6 +10,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "pydantic>=2.7",
   "openai>=1.0",
+  "httpx>=0.27",
   "einops>=0.8",
   "einx>=0.3",
 ]
@@ -22,6 +23,7 @@ dev = [
 
 [project.scripts]
 multiagent = "multiagent.main:main"
+multiagent-tools = "multiagent.tool_smoke:main"
 
 [build-system]
 requires = ["hatchling"]
