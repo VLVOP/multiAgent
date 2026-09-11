@@ -20,7 +20,8 @@ The project uses:
 
 - `uv` for Python/project management
 - `LangGraph` for stateful cyclic orchestration
-- `.env` for local model/API configuration (never committed)
+- DeepSeek API for the current LLM-backed agents
+- `.env` for local API configuration (never committed)
 - `einops` and `einx` reserved for later tensor/vector transformations
 
 ## Quick start
@@ -28,8 +29,33 @@ The project uses:
 ```bash
 uv sync --extra dev
 cp .env.example .env
-uv run python -m multiagent.main
+```
+
+Edit `.env` and add your DeepSeek key:
+
+```bash
+DEEPSEEK_API_KEY=your_key_here
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+Test the API first:
+
+```bash
+uv run multiagent --smoke-test
+```
+
+Expected output:
+
+```text
+DEEPSEEK_OK
+```
+
+Then run the LangGraph system:
+
+```bash
+uv run multiagent --target "Migraine" --cutoff 1985
 uv run pytest -q
 ```
 
-On Git Bash, `cp .env.example .env` creates the local `.env` file.
+If `DEEPSEEK_API_KEY` is absent, the graph keeps using the deterministic mock fallback so the LangGraph loop can still be tested offline.
