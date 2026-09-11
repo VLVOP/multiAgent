@@ -27,8 +27,23 @@ def main() -> None:
             for article in client.search_pubmed(args.query, args.cutoff, args.top_k)
         ]
         mesh = [concept.to_dict() for concept in client.search_mesh(args.entity, args.top_k)]
+        neighbors = [
+            neighbor.to_dict()
+            for neighbor in client.expand_entity_via_mesh(
+                args.entity,
+                args.cutoff,
+                max_articles=max(10, args.top_k * 5),
+                top_k=args.top_k,
+            )
+        ]
 
-    print(json.dumps({"pubmed": papers, "mesh": mesh}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {"pubmed": papers, "mesh": mesh, "entity_neighbors": neighbors},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
