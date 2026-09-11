@@ -10,8 +10,8 @@ from multiagent.tools.agent_tools import expand_biomedical_entity
 from multiagent.tools.mock_graphs import expand_entity
 
 
-def _online_tools_enabled() -> bool:
-    return os.getenv("ONLINE_TOOLS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+def online_tools_enabled() -> bool:
+    return os.getenv("ONLINE_TOOLS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 
 
 class ExplorerAgent:
@@ -57,7 +57,6 @@ class ExplorerAgent:
                     paths.append(candidate)
                     observations.append({"source": b, "neighbor": c, "metadata": c_item})
 
-        # Stable de-duplication.
         unique: list[list[str]] = []
         seen: set[tuple[str, str, str]] = set()
         for path in paths:
@@ -71,16 +70,15 @@ class ExplorerAgent:
         observations: list[dict[str, Any]] = []
         paths: list[list[str]] = []
 
-        if _online_tools_enabled():
+        if online_tools_enabled():
             try:
                 paths, observations = self._online_paths(state)
-            except Exception as exc:  # network/tool failure must not kill the state graph
+            except Exception as exc:
                 observations.append({"tool_error": repr(exc)})
 
         if not paths:
             paths = self._mock_paths(state)
 
-        # The explorer may prioritize paths, but cannot invent new entities.
         if deepseek_enabled() and paths:
             result = chat_json(
                 system_prompt=(
