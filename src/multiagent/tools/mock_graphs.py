@@ -13,10 +13,11 @@ class RelationEdge:
 
 
 ENTITY_RELATIONS = [
-    RelationEdge("Migraine", "associated_with", "Vascular tone", 1978, ("PMID:MOCK1",)),
-    RelationEdge("Vascular tone", "associated_with", "Magnesium", 1981, ("PMID:MOCK2",)),
+    # The first candidate is deliberately already known so the MVP exercises BACKTRACK -> EXPLORE.
     RelationEdge("Migraine", "associated_with", "Serotonin", 1975, ("PMID:MOCK3",)),
     RelationEdge("Serotonin", "associated_with", "Calcium", 1980, ("PMID:MOCK4",)),
+    RelationEdge("Migraine", "associated_with", "Vascular tone", 1978, ("PMID:MOCK1",)),
+    RelationEdge("Vascular tone", "associated_with", "Magnesium", 1981, ("PMID:MOCK2",)),
 ]
 
 KNOWN_DIRECT_LINKS = {
