@@ -20,6 +20,30 @@ def search_mesh_entity(term: str, top_k: int = 5) -> list[dict]:
 
 
 @tool
+def expand_biomedical_entity(
+    entity: str,
+    before_year: int,
+    max_articles: int = 50,
+    top_k: int = 15,
+) -> list[dict]:
+    """Expand an entity into pre-cutoff MeSH neighbors from retrieved PubMed literature.
+
+    Returned neighbors represent literature co-indexing and are candidate bridge entities,
+    not typed or causal biomedical relations.
+    """
+    with NCBIClient() as client:
+        return [
+            neighbor.to_dict()
+            for neighbor in client.expand_entity_via_mesh(
+                entity,
+                before_year,
+                max_articles=max_articles,
+                top_k=top_k,
+            )
+        ]
+
+
+@tool
 def find_entity_pair_evidence(
     entity_a: str,
     entity_b: str,
@@ -47,6 +71,7 @@ def count_entity_pair_mentions(entity_a: str, entity_b: str, before_year: int) -
 LBD_TOOLS = [
     search_pubmed_literature,
     search_mesh_entity,
+    expand_biomedical_entity,
     find_entity_pair_evidence,
     count_entity_pair_mentions,
 ]
