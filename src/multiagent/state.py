@@ -6,11 +6,12 @@ from typing import Literal, TypedDict
 Route = Literal["accept", "refine", "backtrack", "explore"]
 
 
-class Hypothesis(TypedDict):
+class Hypothesis(TypedDict, total=False):
     a: str
     b: str
     c: str
     score: float
+    rationale: str
 
 
 class Verification(TypedDict, total=False):
@@ -22,6 +23,7 @@ class Verification(TypedDict, total=False):
 class Reflection(TypedDict, total=False):
     issue: str
     recommendation: Route
+    rationale: str
 
 
 class DiscoveryState(TypedDict, total=False):
