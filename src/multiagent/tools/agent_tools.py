@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
+from multiagent.tools.lbd_tools import (
+    check_novelty,
+    get_entity_info,
+    search_counter_evidence,
+    verify_relation,
+)
 from multiagent.tools.ncbi import NCBIClient
 
 
@@ -74,4 +80,8 @@ LBD_TOOLS = [
     expand_biomedical_entity,
     find_entity_pair_evidence,
     count_entity_pair_mentions,
+    get_entity_info,
+    verify_relation,
+    search_counter_evidence,
+    check_novelty,
 ]
