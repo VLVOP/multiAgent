@@ -4,14 +4,15 @@ A LangGraph-first biomedical Literature-Based Discovery (LBD) multi-agent resear
 
 ## Current scope
 
-The repository currently contains two working layers:
+The repository currently contains:
 
-1. a cyclic LangGraph discovery-state MVP;
-2. an initial online biomedical tool layer backed by NCBI E-utilities.
+1. a cyclic LangGraph discovery-state graph;
+2. five core LBD agents;
+3. an initial online biomedical tool layer backed by NCBI E-utilities.
 
 The local RAG / vector index / full biomedical KG are **not implemented yet**.
 
-The core discovery loop is:
+## Core state graph
 
 ```text
 PLAN -> EXPLORE -> HYPOTHESIZE -> VERIFY -> CRITIQUE -> ROUTER
@@ -21,11 +22,25 @@ PLAN -> EXPLORE -> HYPOTHESIZE -> VERIFY -> CRITIQUE -> ROUTER
                      REFINE -> VERIFY
 ```
 
-The project uses:
+## Agents vs control nodes
+
+Five actual agents live under `src/multiagent/agents/`:
+
+- `PlannerAgent`: lightweight initial exploration planning;
+- `ExplorerAgent`: entity-space exploration and candidate A-B-C path ranking;
+- `HypothesisAgent`: entity-level hypothesis formulation;
+- `VerifierAgent`: pre-cutoff evidence verification and A-C novelty checking;
+- `CriticAgent`: reflection/critique and next-route recommendation.
+
+`ROUTER`, `REFINE`, and `BACKTRACK` are LangGraph control/state nodes, not separate agents.
+
+Agents currently communicate through `DiscoveryState`; explicit A2A protocols are intentionally deferred.
+
+## Project choices
 
 - `uv` for Python/project management
 - `LangGraph` for stateful cyclic orchestration
-- DeepSeek API for the current LLM-backed agents
+- DeepSeek API for LLM-backed agents
 - NCBI E-utilities for online PubMed and MeSH access
 - `.env` for local API configuration (never committed)
 - `einops` and `einx` reserved for later tensor/vector transformations
@@ -37,7 +52,15 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-Fill your own values in `.env` as needed. `DEEPSEEK_API_KEY`, `NCBI_EMAIL`, and `NCBI_API_KEY` are intentionally blank in the repository.
+Fill your own values in `.env`. Secrets are intentionally blank in the repository.
+
+To let Explorer/Verifier use live biomedical tools, keep:
+
+```bash
+ONLINE_TOOLS_ENABLED=true
+```
+
+Set it to `false` to run the deterministic mock graph only.
 
 ### Test DeepSeek
 
@@ -45,13 +68,13 @@ Fill your own values in `.env` as needed. `DEEPSEEK_API_KEY`, `NCBI_EMAIL`, and 
 uv run multiagent --smoke-test
 ```
 
-### Test the LangGraph loop
+### Run the LangGraph system
 
 ```bash
 uv run multiagent --target "Migraine" --cutoff 1985
 ```
 
-### Test online biomedical tools
+### Test online biomedical tools directly
 
 ```bash
 uv run multiagent-tools --query "migraine magnesium" --cutoff 1985 --entity "Migraine"
@@ -60,11 +83,12 @@ uv run multiagent-tools --query "migraine magnesium" --cutoff 1985 --entity "Mig
 Current online tools expose:
 
 - temporal PubMed literature search;
+- MeSH entity lookup;
+- pre-cutoff biomedical entity expansion via MeSH co-indexing;
 - PubMed entity-pair evidence retrieval;
-- pre-cutoff pair-mention counting;
-- MeSH entity lookup.
+- pre-cutoff pair-mention counting.
 
-The cutoff is enforced in the PubMed query itself. Entity-pair co-mentions are treated only as candidate evidence, not as proof of a typed or causal biomedical relation.
+Entity-pair co-mentions are candidate evidence, not proof of a typed or causal biomedical relation.
 
 ### Run tests
 
@@ -72,4 +96,4 @@ The cutoff is enforced in the PubMed query itself. Entity-pair co-mentions are t
 uv run pytest -q
 ```
 
-If `DEEPSEEK_API_KEY` is absent, the graph keeps using the deterministic mock fallback so the LangGraph loop can still be tested offline.
+Without `DEEPSEEK_API_KEY`, agents fall back to deterministic behavior so the LangGraph loop remains testable offline.
