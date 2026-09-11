@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-import json
+from multiagent.agents import CriticAgent, ExplorerAgent, HypothesisAgent, PlannerAgent, VerifierAgent
+from multiagent.state import DiscoveryState
 
-from multiagent.llm import chat_json, deepseek_enabled
-from multiagent.state import DiscoveryState, Hypothesis, Route
-from multiagent.tools.mock_graphs import check_direct_link, expand_entity, get_relation
+
+planner_agent = PlannerAgent()
+explorer_agent = ExplorerAgent()
+hypothesis_agent = HypothesisAgent()
+verifier_agent = VerifierAgent()
+critic_agent = CriticAgent()
 
 
 def _trace(state: DiscoveryState, node: str) -> list[str]:
@@ -12,11 +16,14 @@ def _trace(state: DiscoveryState, node: str) -> list[str]:
 
 
 def plan_node(state: DiscoveryState) -> DiscoveryState:
+    plan = planner_agent.run(state)
     return {
         **state,
         "iteration": state.get("iteration", 0),
+        "plan": plan,
         "frontier": [state["target_entity"]],
         "entity_paths": [],
+        "exploration_observations": [],
         "hypotheses": [],
         "failed_paths": [],
         "trace": _trace(state, "PLAN"),
@@ -24,141 +31,40 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def explore_node(state: DiscoveryState) -> DiscoveryState:
-    target = state["target_entity"]
-    cutoff = state["cutoff_year"]
-    failed = {tuple(path) for path in state.get("failed_paths", [])}
-
-    candidates: list[list[str]] = []
-    for ab in expand_entity(target, cutoff):
-        for bc in expand_entity(ab.tail, cutoff):
-            path = [target, ab.tail, bc.tail]
-            if tuple(path) not in failed:
-                candidates.append(path)
-
+    result = explorer_agent.run(state)
     return {
         **state,
-        "entity_paths": candidates,
+        "entity_paths": result.get("entity_paths", []),
+        "exploration_observations": result.get("exploration_observations", []),
         "trace": _trace(state, "EXPLORE"),
     }
 
 
 def hypothesize_node(state: DiscoveryState) -> DiscoveryState:
-    paths = state.get("entity_paths", [])
-    if not paths:
-        return {
-            **state,
-            "current_hypothesis": None,
-            "trace": _trace(state, "HYPOTHESIZE"),
-        }
-
-    a, b, c = paths[0]
-    hypothesis: Hypothesis = {
-        "a": a,
-        "b": b,
-        "c": c,
-        "score": 0.5,
-        "rationale": f"Mock ABC bridge: {a} -> {b} -> {c}",
-    }
-
-    if deepseek_enabled():
-        result = chat_json(
-            system_prompt=(
-                "You are the hypothesis agent in a biomedical Literature-Based Discovery system. "
-                "A, B, and C are biomedical entities. Assess the proposed ABC bridge without "
-                "inventing evidence. Output JSON only with keys score and rationale. "
-                "score must be a number from 0 to 1."
-            ),
-            user_prompt=(
-                "Return JSON for this candidate ABC path:\n"
-                f"A={a}\nB={b}\nC={c}\n"
-                f"cutoff_year={state['cutoff_year']}\n"
-                "Example JSON: {\"score\": 0.6, \"rationale\": \"...\"}"
-            ),
-        )
-        hypothesis["score"] = max(0.0, min(1.0, float(result.get("score", 0.5))))
-        hypothesis["rationale"] = str(result.get("rationale", hypothesis["rationale"]))
+    hypothesis = hypothesis_agent.run(state)
+    hypotheses = list(state.get("hypotheses", []))
+    if hypothesis is not None:
+        hypotheses.append(hypothesis)
 
     return {
         **state,
         "current_hypothesis": hypothesis,
-        "hypotheses": [*state.get("hypotheses", []), hypothesis],
+        "hypotheses": hypotheses,
         "trace": _trace(state, "HYPOTHESIZE"),
     }
 
 
 def verify_node(state: DiscoveryState) -> DiscoveryState:
-    h = state.get("current_hypothesis")
-    if h is None:
-        verification = {"ab_supported": False, "bc_supported": False, "ac_already_known": False}
-    else:
-        cutoff = state["cutoff_year"]
-        verification = {
-            "ab_supported": get_relation(h["a"], h["b"], cutoff) is not None,
-            "bc_supported": get_relation(h["b"], h["c"], cutoff) is not None,
-            "ac_already_known": check_direct_link(h["a"], h["c"], cutoff),
-        }
-
-    return {**state, "verification": verification, "trace": _trace(state, "VERIFY")}
-
-
-def _deterministic_route(state: DiscoveryState) -> tuple[Route, str]:
-    v = state.get("verification", {})
-    h = state.get("current_hypothesis")
-
-    if h is None:
-        return "explore", "no_candidate_path"
-    if v.get("ac_already_known"):
-        return "backtrack", "A-C relation already known before cutoff"
-    if not v.get("ab_supported") or not v.get("bc_supported"):
-        return "refine", "bridge evidence incomplete"
-    return "accept", "candidate is supported and not directly known"
+    verification = verifier_agent.run(state)
+    return {
+        **state,
+        "verification": verification,
+        "trace": _trace(state, "VERIFY"),
+    }
 
 
 def critique_node(state: DiscoveryState) -> DiscoveryState:
-    route, issue = _deterministic_route(state)
-    reflection = {
-        "issue": issue,
-        "recommendation": route,
-        "rationale": "Deterministic verification-based critique.",
-    }
-
-    if deepseek_enabled() and state.get("current_hypothesis") is not None:
-        result = chat_json(
-            system_prompt=(
-                "You are the critique/reflection agent in a biomedical Literature-Based Discovery "
-                "system. Critique only from the supplied hypothesis and verification state. "
-                "Do not invent literature. Output JSON only with keys recommendation, issue, "
-                "and rationale. recommendation must be one of accept, refine, backtrack, explore."
-            ),
-            user_prompt=(
-                "Critique this state and return JSON:\n"
-                f"hypothesis={json.dumps(state.get('current_hypothesis'), ensure_ascii=False)}\n"
-                f"verification={json.dumps(state.get('verification', {}), ensure_ascii=False)}\n"
-                f"cutoff_year={state['cutoff_year']}\n"
-                "Example JSON: {\"recommendation\": \"refine\", \"issue\": \"...\", "
-                "\"rationale\": \"...\"}"
-            ),
-        )
-        proposed = str(result.get("recommendation", route)).lower()
-        allowed: set[Route] = {"accept", "refine", "backtrack", "explore"}
-        if proposed in allowed:
-            route = proposed  # type: ignore[assignment]
-        reflection = {
-            "issue": str(result.get("issue", issue)),
-            "recommendation": route,
-            "rationale": str(result.get("rationale", "")),
-        }
-
-        # Hard LBD constraints override model preference.
-        verification = state.get("verification", {})
-        if verification.get("ac_already_known"):
-            route = "backtrack"
-            reflection["recommendation"] = route
-        elif not verification.get("ab_supported") or not verification.get("bc_supported"):
-            if route == "accept":
-                route = "refine"
-                reflection["recommendation"] = route
-
+    route, reflection = critic_agent.run(state)
     return {
         **state,
         "reflection": reflection,
@@ -168,13 +74,19 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def refine_node(state: DiscoveryState) -> DiscoveryState:
+    """Deterministic state-control node; not an Agent.
+
+    For now it lowers confidence slightly before re-verification so the loop remains explicit.
+    A dedicated hypothesis-repair policy can be introduced later without changing graph topology.
+    """
     h = state.get("current_hypothesis")
     if h is not None:
-        h = {**h, "score": min(1.0, float(h.get("score", 0.5)) + 0.1)}
+        h = {**h, "score": max(0.0, float(h.get("score", 0.5)) - 0.05)}
     return {**state, "current_hypothesis": h, "trace": _trace(state, "REFINE")}
 
 
 def backtrack_node(state: DiscoveryState) -> DiscoveryState:
+    """Deterministic state-control node; mark the current ABC path as failed and loop."""
     h = state.get("current_hypothesis")
     failed_paths = list(state.get("failed_paths", []))
     if h is not None:
