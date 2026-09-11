@@ -9,6 +9,7 @@ dependencies = [
   "langchain-core>=0.3",
   "python-dotenv>=1.0",
   "pydantic>=2.7",
+  "openai>=1.0",
   "einops>=0.8",
   "einx>=0.3",
 ]
