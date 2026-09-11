@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -39,6 +40,16 @@ class MeshConcept:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class EntityNeighbor:
+    entity: str
+    support_count: int
+    supporting_pmids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def _text(element: ET.Element | None) -> str:
     if element is None:
         return ""
@@ -46,13 +57,18 @@ def _text(element: ET.Element | None) -> str:
 
 
 def _year_from_article(article: ET.Element) -> int | None:
-    year = article.findtext(".//JournalIssue/PubDate/Year")
-    if year and year.isdigit():
-        return int(year)
+    for path in (".//JournalIssue/PubDate/Year", ".//ArticleDate/Year"):
+        year = article.findtext(path)
+        if year and year.isdigit():
+            return int(year)
 
     medline_date = article.findtext(".//JournalIssue/PubDate/MedlineDate") or ""
     match = re.search(r"\b(18|19|20)\d{2}\b", medline_date)
     return int(match.group(0)) if match else None
+
+
+def _normalize_entity(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
 class NCBIClient:
@@ -106,7 +122,6 @@ class NCBIClient:
             term=self.temporal_query(query, before_year),
             retmode="json",
             retmax=max(1, min(top_k, 100)),
-            sort="relevance",
         )
         payload = response.json()
         return list(payload.get("esearchresult", {}).get("idlist", []))
@@ -172,7 +187,13 @@ class NCBIClient:
         top_k: int = 10,
     ) -> list[PubMedArticle]:
         pmids = self.search_pubmed_ids(query, before_year, top_k)
-        return self.fetch_pubmed_articles(pmids)
+        articles = self.fetch_pubmed_articles(pmids)
+        # Temporal filtering is enforced twice: in ESearch and again after parsing.
+        return [
+            article
+            for article in articles
+            if article.year is not None and article.year <= before_year
+        ]
 
     def pair_evidence(
         self,
@@ -191,6 +212,46 @@ class NCBIClient:
     def pair_mention_count(self, entity_a: str, entity_b: str, before_year: int) -> int:
         query = f'"{entity_a}" AND "{entity_b}"'
         return self.count_pubmed(query, before_year)
+
+    def expand_entity_via_mesh(
+        self,
+        entity: str,
+        before_year: int,
+        *,
+        max_articles: int = 50,
+        top_k: int = 15,
+    ) -> list[EntityNeighbor]:
+        """Build a temporary entity neighborhood from pre-cutoff PubMed MeSH indexing.
+
+        The returned edges mean "co-indexed in retrieved literature". They are discovery
+        candidates, not typed biomedical relations.
+        """
+        articles = self.search_pubmed(f'"{entity}"', before_year, max_articles)
+        source = _normalize_entity(entity)
+        pmids_by_entity: dict[str, list[str]] = defaultdict(list)
+        display_name: dict[str, str] = {}
+
+        for article in articles:
+            for mesh_term in article.mesh_terms:
+                normalized = _normalize_entity(mesh_term)
+                if not normalized or normalized == source:
+                    continue
+                display_name.setdefault(normalized, mesh_term)
+                if article.pmid not in pmids_by_entity[normalized]:
+                    pmids_by_entity[normalized].append(article.pmid)
+
+        ranked = sorted(
+            pmids_by_entity,
+            key=lambda key: (-len(pmids_by_entity[key]), display_name[key].lower()),
+        )
+        return [
+            EntityNeighbor(
+                entity=display_name[key],
+                support_count=len(pmids_by_entity[key]),
+                supporting_pmids=tuple(pmids_by_entity[key]),
+            )
+            for key in ranked[: max(1, top_k)]
+        ]
 
     def search_mesh(self, term: str, top_k: int = 10) -> list[MeshConcept]:
         search_response = self._get(
