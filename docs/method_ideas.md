@@ -56,6 +56,42 @@ Borrow sparse-compute ideas from LLM infrastructure rather than treating all too
 
 The intended contribution is not generic caching or generic routing by itself, but **ABC-aware routing + evidence caching + adaptive compute** inside iterative biomedical Literature-Based Discovery.
 
+### 4. Topic-aware Context Management with LDA
+
+Use Latent Dirichlet Allocation (LDA) as a lightweight context organizer rather than as the primary semantic retriever.
+
+Each document, tool observation, reflection, or cached evidence item may carry a topic distribution:
+
+```text
+theta_d = P(z | d)
+```
+
+The current discovery state can maintain a corresponding topic profile:
+
+```text
+theta_S = P(z | S_t)
+```
+
+The context manager can then use topic information for:
+
+- retaining context relevant to the current ABC state;
+- maintaining topical diversity in the selected evidence;
+- reducing redundant historical observations;
+- deciding which older context can be compressed, cached, or discarded;
+- organizing the evidence cache by topic coverage.
+
+The learned Evidence Router should primarily model task-specific relevance, while LDA contributes topic coverage and diversity. A conceptual combined score is:
+
+```text
+Score(d) = alpha * RouterRelevance(d)
+         + beta  * TopicCoverage(d)
+         - gamma * Redundancy(d)
+```
+
+This can produce a **topic-aware evidence cache**, where cached entries store not only relation evidence but also topic distributions and topical coverage metadata.
+
+LDA itself is not intended as a standalone contribution. The intended role is a lightweight context-management component inside **ABC-aware routing + evidence cache + adaptive compute**.
+
 ### Current framing
 
 A possible umbrella term is:
@@ -66,5 +102,7 @@ with two tightly connected method contributions:
 
 1. **ABC-State-Conditioned Evidence Routing**: decide which evidence is worth expensive reasoning.
 2. **Cache-Aware Sparse Discovery Policy**: decide what to retrieve, reuse, verify, explore, and how much compute to spend.
+
+Topic-aware context management is treated as a supporting mechanism rather than an independent contribution.
 
 These ideas should be evaluated against full-retrieval/all-agent baselines, fixed Top-K, generic rerankers, no-cache, LRU/semantic-cache baselines, and generic learned routers, while reporting both discovery quality and compute/tool/token cost.
