@@ -1,4 +1,5 @@
 from multiagent.context import context_manager
+from multiagent.graph import graph
 
 
 BASE_STATE = {
@@ -72,3 +73,22 @@ def test_level_three_is_not_disclosed_before_verification_exists():
     metadata = context_manager.view_metadata("critic", state)
 
     assert metadata["level"] == 2
+
+
+def test_graph_records_agent_context_access_levels():
+    result = graph.invoke(
+        {
+            "target_entity": "Migraine",
+            "cutoff_year": 1985,
+            "iteration": 0,
+            "max_iterations": 5,
+            "trace": [],
+        },
+        config={"recursion_limit": 20},
+    )
+
+    access = result["context_access_log"]
+    assert access[0]["agent"] == "planner"
+    assert access[0]["level"] == 1
+    assert any(item["agent"] == "explorer" and item["level"] == 2 for item in access)
+    assert any(item["agent"] == "critic" and item["level"] == 3 for item in access)
