@@ -6,8 +6,8 @@ from typing import Any
 
 from multiagent.llm import chat_json, deepseek_enabled
 from multiagent.state import DiscoveryState
-from multiagent.tools.agent_tools import expand_biomedical_entity
-from multiagent.tools.mock_graphs import expand_entity
+from multiagent.tools.agent_tools import expand_entity
+from multiagent.tools.mock_graphs import expand_entity as mock_expand_entity
 
 
 def online_tools_enabled() -> bool:
@@ -22,8 +22,8 @@ class ExplorerAgent:
         cutoff = state["cutoff_year"]
         failed = {tuple(path) for path in state.get("failed_paths", [])}
         paths: list[list[str]] = []
-        for ab in expand_entity(target, cutoff):
-            for bc in expand_entity(ab.tail, cutoff):
+        for ab in mock_expand_entity(target, cutoff):
+            for bc in mock_expand_entity(ab.tail, cutoff):
                 candidate = [target, ab.tail, bc.tail]
                 if tuple(candidate) not in failed:
                     paths.append(candidate)
@@ -34,7 +34,7 @@ class ExplorerAgent:
         cutoff = state["cutoff_year"]
         failed = {tuple(path) for path in state.get("failed_paths", [])}
 
-        first_hop = expand_biomedical_entity.invoke(
+        first_hop = expand_entity.invoke(
             {"entity": target, "before_year": cutoff, "max_articles": 40, "top_k": 6}
         )
         paths: list[list[str]] = []
@@ -45,7 +45,7 @@ class ExplorerAgent:
             if not b or b.lower() == target.lower():
                 continue
             observations.append({"source": target, "neighbor": b, "metadata": b_item})
-            second_hop = expand_biomedical_entity.invoke(
+            second_hop = expand_entity.invoke(
                 {"entity": b, "before_year": cutoff, "max_articles": 30, "top_k": 5}
             )
             for c_item in second_hop[:4]:
