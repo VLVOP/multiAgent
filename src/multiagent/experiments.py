@@ -130,6 +130,7 @@ def summarize_result(result: DiscoveryState) -> dict[str, Any]:
         "route": result.get("route"),
         "final_path": final_path,
         "trace_length": len(result.get("trace", [])),
+        "tool_usage": dict(result.get("tool_usage", {})),
         "cache": dict(result.get("cache_stats", {})),
         "communication": dict(result.get("communication_stats", {})),
         "context": context_summary,
@@ -169,10 +170,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--presets",
         default="sparse",
-        help=(
-            "Comma-separated presets: "
-            + ", ".join(ARCHITECTURE_PRESETS)
-        ),
+        help="Comma-separated presets: " + ", ".join(ARCHITECTURE_PRESETS),
     )
     parser.add_argument("--max-iterations", type=int, default=5)
     parser.add_argument("--max-refinement-rounds", type=int, default=3)
