@@ -5,7 +5,7 @@ from typing import Any
 
 from multiagent.agents.explorer import online_tools_enabled
 from multiagent.llm import chat_json, deepseek_enabled
-from multiagent.state import DiscoveryState, Route
+from multiagent.state import DiscoveryState, RefinementTarget, Route
 from multiagent.tools.agent_tools import search_counter_evidence
 
 
@@ -13,17 +13,28 @@ class CriticAgent:
     """Reflect on verification results, inspect counter-evidence, and recommend a transition."""
 
     @staticmethod
-    def _deterministic_route(state: DiscoveryState) -> tuple[Route, str]:
+    def _deterministic_route(
+        state: DiscoveryState,
+    ) -> tuple[Route, str, RefinementTarget | None]:
         verification = state.get("verification", {})
         hypothesis = state.get("current_hypothesis")
 
         if hypothesis is None:
-            return "explore", "no_candidate_path"
+            return "explore", "no_candidate_path", None
         if verification.get("ac_already_known"):
-            return "backtrack", "A-C relation already known before cutoff"
-        if not verification.get("ab_supported") or not verification.get("bc_supported"):
-            return "refine", "bridge evidence incomplete"
-        return "accept", "candidate is supported and not directly known"
+            return "backtrack", "A-C relation already known before cutoff", None
+        if verification.get("ac_novelty_resolved", True) is False:
+            return "refine", "A-C novelty status is unresolved", "ac_novelty"
+
+        ab_supported = bool(verification.get("ab_supported"))
+        bc_supported = bool(verification.get("bc_supported"))
+        if not ab_supported and not bc_supported:
+            return "refine", "both bridge relations need stronger evidence", "both"
+        if not ab_supported:
+            return "refine", "A-B bridge evidence is incomplete", "ab"
+        if not bc_supported:
+            return "refine", "B-C bridge evidence is incomplete", "bc"
+        return "accept", "candidate is supported and not directly known", None
 
     def _counter_evidence(self, state: DiscoveryState) -> dict[str, Any]:
         hypothesis = state.get("current_hypothesis")
@@ -53,7 +64,7 @@ class CriticAgent:
             return {"tool_error": repr(exc)}
 
     def run(self, state: DiscoveryState) -> tuple[Route, dict[str, Any]]:
-        route, issue = self._deterministic_route(state)
+        route, issue, refinement_target = self._deterministic_route(state)
         counter = self._counter_evidence(state)
 
         ab_counter = bool(counter.get("ab", {}).get("counter_evidence_found"))
@@ -61,6 +72,7 @@ class CriticAgent:
         if route == "accept" and (ab_counter or bc_counter):
             route = "refine"
             issue = "counter-evidence found for an otherwise supported bridge"
+            refinement_target = "counter"
 
         reflection: dict[str, Any] = {
             "issue": issue,
@@ -68,6 +80,8 @@ class CriticAgent:
             "rationale": "Verification- and counter-evidence-based critique.",
             "counter_evidence": counter,
         }
+        if refinement_target is not None:
+            reflection["refinement_target"] = refinement_target
 
         if deepseek_enabled() and state.get("current_hypothesis") is not None:
             result = chat_json(
@@ -75,8 +89,10 @@ class CriticAgent:
                     "You are the critique/reflection agent in a biomedical Literature-Based "
                     "Discovery system. Critique only from the supplied hypothesis, verification, "
                     "counter-evidence, and prior exploration state. Do not invent literature. "
-                    "Output JSON with keys recommendation, issue, rationale. recommendation must "
-                    "be one of accept, refine, backtrack, explore."
+                    "Output JSON with keys recommendation, issue, rationale, refinement_target. "
+                    "recommendation must be one of accept, refine, backtrack, explore. "
+                    "refinement_target, when recommendation is refine, should be one of "
+                    "ab, bc, both, ac_novelty, counter."
                 ),
                 user_prompt=(
                     f"hypothesis={json.dumps(state.get('current_hypothesis'), ensure_ascii=False)}\n"
@@ -90,6 +106,12 @@ class CriticAgent:
             allowed: set[Route] = {"accept", "refine", "backtrack", "explore"}
             if proposed in allowed:
                 route = proposed  # type: ignore[assignment]
+
+            proposed_target = str(result.get("refinement_target", "")).lower()
+            allowed_targets: set[str] = {"ab", "bc", "both", "ac_novelty", "counter"}
+            if route == "refine" and proposed_target in allowed_targets:
+                reflection["refinement_target"] = proposed_target
+
             reflection.update(
                 {
                     "issue": str(result.get("issue", issue)),
@@ -98,18 +120,17 @@ class CriticAgent:
                 }
             )
 
-        # Hard LBD constraints override model preference.
-        verification = state.get("verification", {})
-        if verification.get("ac_already_known"):
-            route = "backtrack"
+        # Hard LBD constraints override model preference and restore the deterministic target.
+        hard_route, hard_issue, hard_target = self._deterministic_route(state)
+        if hard_route in {"backtrack", "refine"}:
+            route = hard_route
             reflection["recommendation"] = route
-        elif not verification.get("ab_supported") or not verification.get("bc_supported"):
-            if route == "accept":
-                route = "refine"
-                reflection["recommendation"] = route
+            reflection["issue"] = hard_issue
+            if hard_target is not None:
+                reflection["refinement_target"] = hard_target
         elif ab_counter or bc_counter:
-            if route == "accept":
-                route = "refine"
-                reflection["recommendation"] = route
+            route = "refine"
+            reflection["recommendation"] = route
+            reflection["refinement_target"] = "counter"
 
         return route, reflection
