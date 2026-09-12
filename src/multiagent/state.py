@@ -64,6 +64,26 @@ class CacheStats(TypedDict, total=False):
     writes: int
 
 
+class AgentMessage(TypedDict, total=False):
+    src: str
+    dst: str
+    kind: str
+    requested_action: str
+    abc_path: list[str]
+    relation_under_test: str | None
+    evidence_refs: list[str]
+    cache_references: list[str]
+    uncertainty: float
+    payload: dict[str, Any]
+
+
+class CommunicationStats(TypedDict, total=False):
+    messages: int
+    payload_chars: int
+    evidence_refs: int
+    cache_refs: int
+
+
 class DiscoveryState(TypedDict, total=False):
     target_entity: str
     cutoff_year: int
@@ -87,5 +107,9 @@ class DiscoveryState(TypedDict, total=False):
     evidence_cache: dict[str, dict[str, Any]]
     cache_stats: CacheStats
     context_access_log: list[ContextAccess]
+
+    agent_messages: list[AgentMessage]
+    communication_stats: CommunicationStats
+
     route: Route
     trace: list[str]
