@@ -36,6 +36,7 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
     return {
         **state,
         "iteration": state.get("iteration", 0),
+        "max_refinement_rounds": state.get("max_refinement_rounds", 3),
         "termination_reason": None,
         "plan": plan,
         "frontier": [state["target_entity"]],
