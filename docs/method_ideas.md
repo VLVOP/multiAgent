@@ -156,6 +156,63 @@ Useful communication-efficiency metrics include:
 
 Natural baselines include full shared context, free-form A2A, structured A2A without routing, and structured sparse A2A.
 
+### 6. Dual-layer Progressive Context Disclosure
+
+Manage LLM context through **two-stage progressive disclosure** aligned with the system's two retrieval stores.
+
+Layer 1 exposes only compact, structured discovery context from Entity/Relation Retrieval, for example:
+
+```text
+ABC entities
+candidate relations
+relation confidence
+evidence counts
+known gaps
+uncertainty
+cache status
+topic profile
+```
+
+The model first reasons over this compressed relation-level view. Only when the current state reveals uncertainty, contradiction, novelty ambiguity, or an evidence gap does the system escalate to Layer 2.
+
+Layer 2 discloses fine-grained evidence from Document/Evidence Retrieval, for example:
+
+```text
+PMIDs
+titles / abstracts
+support evidence
+counter evidence
+specific passages
+provenance
+```
+
+The intended pipeline is:
+
+```text
+ABC State
+   -> Layer 1: Entity/Relation Context
+   -> LDA topic profile / coverage check
+   -> sufficient? yes -> reasoning
+                   no  -> Layer 2: Document/Evidence Context
+                           -> Evidence Router
+                           -> LDA diversity / redundancy control
+                           -> selected Top-K evidence
+                           -> LLM reasoning
+```
+
+LDA is used across both layers for topic coverage, diversity, and redundancy control rather than primary semantic retrieval. The Evidence Router provides task-specific relevance, while progressive disclosure controls when expensive document-level evidence enters the context window.
+
+The intended effect is to reduce context length, duplicated evidence, unnecessary document loading, and repeated LLM attention over already-known information while preserving discovery quality.
+
+This context mechanism is closely tied to the dual retrieval design:
+
+```text
+Entity/Relation Retrieval -> coarse discovery context
+Document/Evidence Retrieval -> fine-grained evidence context
+```
+
+and should be evaluated against full-context prompting, flat Top-K retrieval, one-stage RAG, and progressive disclosure without topic-aware management.
+
 ### Current framing
 
 A possible umbrella term is:
@@ -167,6 +224,10 @@ with two primary method contributions:
 1. **ABC-State-Conditioned Evidence Routing**: decide which evidence is worth expensive reasoning.
 2. **Cache-Aware Sparse Discovery Policy**: decide what to retrieve, reuse, verify, explore, and how much compute to spend.
 
-Topic-aware context management and structured sparse A2A are treated as supporting mechanisms that strengthen the same sparse-discovery story rather than as disconnected standalone claims.
+A third tightly coupled context contribution is:
 
-These ideas should be evaluated against full-retrieval/all-agent baselines, fixed Top-K, generic rerankers, no-cache, LRU/semantic-cache baselines, generic learned routers, and communication-routing baselines, while reporting both discovery quality and compute/tool/token/communication cost.
+3. **Dual-Layer Progressive Context Disclosure**: progressively expose relation-level and document-level context using the two retrieval stores, with topic-aware diversity/redundancy control.
+
+Topic-aware LDA management and structured sparse A2A strengthen the same sparse-discovery story rather than being treated as disconnected standalone claims.
+
+These ideas should be evaluated against full-retrieval/all-agent baselines, fixed Top-K, generic rerankers, no-cache, LRU/semantic-cache baselines, generic learned routers, communication-routing baselines, and flat/full-context prompting, while reporting discovery quality together with compute/tool/token/communication/context cost.
