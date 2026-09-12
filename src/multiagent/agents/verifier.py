@@ -3,6 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from multiagent.agents.explorer import online_tools_enabled
+from multiagent.cache import (
+    get_novelty_entry,
+    get_relation_entry,
+    novelty_entry_covers,
+    put_novelty_decision,
+    put_relation_verification,
+    relation_entry_covers,
+)
 from multiagent.state import DiscoveryState
 from multiagent.tools.agent_tools import check_novelty, verify_relation
 from multiagent.tools.mock_graphs import check_direct_link, get_relation
@@ -29,6 +37,15 @@ class VerifierAgent:
             "mode": "mock",
         }
 
+    @staticmethod
+    def _stats(state: DiscoveryState) -> dict[str, int]:
+        current = state.get("cache_stats", {})
+        return {
+            "hits": int(current.get("hits", 0)),
+            "misses": int(current.get("misses", 0)),
+            "writes": int(current.get("writes", 0)),
+        }
+
     def _online_verify(self, state: DiscoveryState) -> dict[str, Any]:
         h = state.get("current_hypothesis")
         if h is None:
@@ -44,29 +61,108 @@ class VerifierAgent:
         request = state.get("refinement_request") or {}
         target = request.get("target")
         top_k = max(1, int(request.get("top_k", 8)))
+        iteration = state.get("iteration", 0)
 
-        ab = previous.get("ab_verification", {})
-        bc = previous.get("bc_verification", {})
-        novelty = previous.get("ac_novelty", {})
+        cache = dict(state.get("evidence_cache", {}))
+        stats = self._stats(state)
 
-        rerun_ab = target in {None, "ab", "both", "counter"} or not ab
-        rerun_bc = target in {None, "bc", "both", "counter"} or not bc
-        rerun_novelty = target in {None, "ac_novelty"} or not novelty
+        def resolve_relation(
+            entity_a: str,
+            entity_b: str,
+            previous_result: dict[str, Any],
+            required_top_k: int,
+        ) -> dict[str, Any]:
+            nonlocal cache, stats
+            entry = get_relation_entry(cache, entity_a, entity_b, cutoff)
+            if relation_entry_covers(entry, required_top_k):
+                stats["hits"] += 1
+                return dict(entry.get("verification", {}))
 
-        if rerun_ab:
-            ab = verify_relation.invoke(
-                {"entity_a": h["a"], "entity_b": h["b"], "before_year": cutoff, "top_k": top_k}
+            if (
+                required_top_k == 0
+                and previous_result
+                and previous_result.get("relation_supported") is not None
+            ):
+                return previous_result
+
+            stats["misses"] += 1
+            result = verify_relation.invoke(
+                {
+                    "entity_a": entity_a,
+                    "entity_b": entity_b,
+                    "before_year": cutoff,
+                    "top_k": max(1, required_top_k or 8),
+                }
             )
-        if rerun_bc:
-            bc = verify_relation.invoke(
-                {"entity_a": h["b"], "entity_b": h["c"], "before_year": cutoff, "top_k": top_k}
+            cache = put_relation_verification(
+                cache,
+                result,
+                top_k=max(1, required_top_k or 8),
+                iteration=iteration,
             )
-        if rerun_novelty:
-            novelty = check_novelty.invoke(
-                {"entity_a": h["a"], "entity_c": h["c"], "before_year": cutoff, "top_k": top_k}
-            )
+            stats["writes"] += 1
+            return result
 
-        # If semantic judgment is unavailable, do not promote co-occurrence into relation support.
+        def resolve_novelty(
+            entity_a: str,
+            entity_c: str,
+            previous_result: dict[str, Any],
+            required_top_k: int,
+        ) -> dict[str, Any]:
+            nonlocal cache, stats
+            entry = get_novelty_entry(cache, entity_a, entity_c, cutoff)
+            if novelty_entry_covers(entry, required_top_k):
+                stats["hits"] += 1
+                return dict(entry.get("novelty", {}))
+
+            if (
+                required_top_k == 0
+                and previous_result
+                and previous_result.get("direct_relation_known") is not None
+            ):
+                return previous_result
+
+            stats["misses"] += 1
+            result = check_novelty.invoke(
+                {
+                    "entity_a": entity_a,
+                    "entity_c": entity_c,
+                    "before_year": cutoff,
+                    "top_k": max(1, required_top_k or 8),
+                }
+            )
+            cache = put_novelty_decision(
+                cache,
+                result,
+                top_k=max(1, required_top_k or 8),
+                iteration=iteration,
+            )
+            stats["writes"] += 1
+            return result
+
+        ab_depth = top_k if target in {None, "ab", "both", "counter"} else 0
+        bc_depth = top_k if target in {None, "bc", "both", "counter"} else 0
+        novelty_depth = top_k if target in {None, "ac_novelty"} else 0
+
+        ab = resolve_relation(
+            h["a"],
+            h["b"],
+            dict(previous.get("ab_verification", {})),
+            ab_depth,
+        )
+        bc = resolve_relation(
+            h["b"],
+            h["c"],
+            dict(previous.get("bc_verification", {})),
+            bc_depth,
+        )
+        novelty = resolve_novelty(
+            h["a"],
+            h["c"],
+            dict(previous.get("ac_novelty", {})),
+            novelty_depth,
+        )
+
         ab_supported = ab.get("relation_supported") is True
         bc_supported = bc.get("relation_supported") is True
         direct_relation_known = novelty.get("direct_relation_known")
@@ -83,6 +179,8 @@ class VerifierAgent:
             "ac_novelty": novelty,
             "refinement_target": target,
             "mode": "online_targeted_verification" if target else "online_semantic_verification",
+            "_evidence_cache": cache,
+            "_cache_stats": stats,
         }
 
     def run(self, state: DiscoveryState) -> dict[str, Any]:
