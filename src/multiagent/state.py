@@ -46,6 +46,7 @@ class Reflection(TypedDict, total=False):
     rationale: str
     refinement_target: RefinementTarget
     counter_evidence: dict[str, Any]
+    counter_evidence_reused: bool
 
 
 class ContextAccess(TypedDict, total=False):
@@ -55,6 +56,7 @@ class ContextAccess(TypedDict, total=False):
     regions: list[str]
     visible_fields: list[str]
     visible_field_count: int
+    visible_message_count: int
     iteration: int
 
 
