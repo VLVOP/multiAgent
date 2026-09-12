@@ -11,12 +11,13 @@ The repository currently contains:
 3. a stable agent-facing biomedical Tool Interface with a swappable online backend;
 4. relation verification, novelty auditing, counter-evidence search, and evidence aggregation;
 5. hierarchical agent-specific context views with local relation disclosure;
-6. a state-local temporal evidence cache;
-7. structured sparse A2A messages and communication diagnostics;
-8. a thin MCP v2 adapter exposing the same Tool Interface;
-9. architecture-ablation controls and provider-independent LLM configuration for cross-model experiments.
+6. a replaceable context-disclosure policy layer;
+7. a state-local temporal evidence cache;
+8. structured sparse A2A messages and communication diagnostics;
+9. a thin MCP v2 adapter exposing the same Tool Interface;
+10. architecture-ablation presets, external tool-call metrics, and provider-independent LLM configuration for cross-model experiments.
 
-The frozen/local MEDLINE corpus, vector/RAG index, learned Evidence Router, LDA context manager, and benchmark dataset construction are **not implemented yet**.
+The frozen/local MEDLINE corpus, vector/RAG index, learned Evidence Router, learned context policy, LDA context manager, and benchmark dataset construction are **not implemented yet**.
 
 ## Core state graph
 
@@ -58,9 +59,13 @@ L3: detailed verification/evidence state
 
 Hierarchy depth is separate from local disclosure. During a B-C refinement, for example, detailed B-C evidence can be disclosed while A-B and A-C details remain hidden.
 
+The decision itself is separated into `context_policy.py`. The current deterministic `HeuristicLBDDisclosurePolicy` is the baseline insertion point for a later learned state-conditioned policy; the manager remains responsible only for representing/projecting the selected context.
+
 Verified relation and novelty results are stored in a state-local temporal cache keyed by entity pair and cutoff year. The verifier reuses resolved cache entries instead of repeating unrelated verification work. Critic counter-evidence is also reused across repeated refinement of the same ABC path when caching is enabled.
 
 Agents emit compact typed messages containing ABC paths, requested actions, evidence references, cache references, uncertainty, and small structured payloads. Full raw evidence is not copied between agents.
+
+External biomedical tool calls are accumulated by Agent and tool name in `DiscoveryState.tool_usage`, so cache/context policies can later be evaluated against actual tool-call cost rather than only trace length.
 
 ## Architecture ablations
 
@@ -80,7 +85,19 @@ uv run multiagent --target "Migraine" --cutoff 1985 --no-cache
 uv run multiagent --target "Migraine" --cutoff 1985 --no-a2a
 ```
 
-These switches are stored in `DiscoveryState`, making later Dataset × LLM × Architecture experiments reproducible from the result object itself.
+For controlled comparison of the same case across predefined architecture variants:
+
+```bash
+uv run multiagent-experiment \
+  --target "Migraine" \
+  --cutoff 1985 \
+  --presets sparse,full-context,no-cache,no-a2a,all-off \
+  --summary-only
+```
+
+The experiment runner records the architecture preset, non-secret LLM metadata, loop termination, final ABC path, external tool calls, cache statistics, communication cost, and context-access statistics. The `all-off` preset retains the same LangGraph loop but disables hierarchical context, cache reuse, and structured A2A so those components can be isolated without silently changing the task graph.
+
+These controls are stored in `DiscoveryState`, making later Dataset × LLM × Architecture experiments reproducible from the result object itself.
 
 ## LLM configuration
 
@@ -161,6 +178,12 @@ uv run multiagent --smoke-test
 
 ```bash
 uv run multiagent --target "Migraine" --cutoff 1985
+```
+
+### Run one-case architecture ablations
+
+```bash
+uv run multiagent-experiment --presets sparse,all-off --summary-only
 ```
 
 ### Test online biomedical retrieval directly
