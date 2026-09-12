@@ -23,12 +23,14 @@ def test_critic_reuses_counter_evidence_for_same_abc_path():
             "c": "Magnesium",
         },
         "cutoff_year": 1985,
+        "cache_enabled": True,
         "reflection": {"counter_evidence": counter},
     }
 
     result = CriticAgent()._counter_evidence(state)
 
     assert result["_reused"] is True
+    assert result["_tool_calls"] == 0
     assert result["ab"]["entity_b"] == "Vascular tone"
 
 
@@ -40,6 +42,7 @@ def test_critic_does_not_reuse_counter_evidence_for_different_path():
             "c": "Calcium",
         },
         "cutoff_year": 1985,
+        "cache_enabled": True,
         "reflection": {
             "counter_evidence": {
                 "ab": {
@@ -56,5 +59,6 @@ def test_critic_does_not_reuse_counter_evidence_for_different_path():
         },
     }
 
-    # ONLINE_TOOLS_ENABLED is false in the test environment, so a cache miss returns no data.
-    assert CriticAgent()._counter_evidence(state) == {}
+    # ONLINE_TOOLS_ENABLED is false in the test environment, so a cache miss makes no tool call.
+    result = CriticAgent()._counter_evidence(state)
+    assert result == {"_tool_calls": 0}
