@@ -1,4 +1,5 @@
-from multiagent.graph import graph, route_after_critique
+from multiagent.edges import route_after_critique
+from multiagent.graph import graph
 
 
 def test_route_after_critique_keeps_loop_branch_under_budget():
