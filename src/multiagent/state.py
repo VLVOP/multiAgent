@@ -38,6 +38,7 @@ class DiscoveryState(TypedDict, total=False):
     cutoff_year: int
     iteration: int
     max_iterations: int
+    termination_reason: str | None
 
     plan: dict[str, Any]
     frontier: list[str]
