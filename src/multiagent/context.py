@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Literal
 
 from multiagent.cache import project_cache_to_abc
+from multiagent.communication import messages_for_agent
 from multiagent.state import DiscoveryState
 
 
@@ -27,6 +28,7 @@ class HierarchicalContextManager:
         "cutoff_year",
         "iteration",
         "max_iterations",
+        "max_refinement_rounds",
         "termination_reason",
         "plan",
         "route",
@@ -41,6 +43,7 @@ class HierarchicalContextManager:
         "refinement_request",
         "refinement_round",
         "cache_stats",
+        "communication_stats",
     }
 
     _L3_FIELDS = _L2_FIELDS | {
@@ -59,8 +62,14 @@ class HierarchicalContextManager:
 
     _REQUIRED_FIELDS: dict[AgentRole, set[str]] = {
         "planner": {"target_entity", "cutoff_year"},
-        "explorer": {"target_entity", "cutoff_year", "plan", "failed_paths"},
-        "hypothesis": {"entity_paths", "cutoff_year"},
+        "explorer": {
+            "target_entity",
+            "cutoff_year",
+            "plan",
+            "failed_paths",
+            "agent_messages",
+        },
+        "hypothesis": {"entity_paths", "cutoff_year", "agent_messages"},
         "verifier": {
             "current_hypothesis",
             "cutoff_year",
@@ -69,12 +78,14 @@ class HierarchicalContextManager:
             "evidence_cache",
             "cache_stats",
             "iteration",
+            "agent_messages",
         },
         "critic": {
             "current_hypothesis",
             "cutoff_year",
             "verification",
             "failed_paths",
+            "agent_messages",
         },
     }
 
@@ -176,9 +187,6 @@ class HierarchicalContextManager:
                 regions,
             )
 
-        # The cache remains global in DiscoveryState but a verifier only receives entries
-        # local to its current ABC hypothesis. This is a control-plane projection, not a
-        # prompt-time dump of every cached paper.
         hypothesis = state.get("current_hypothesis")
         if "evidence_cache" in projected and hypothesis is not None:
             projected["evidence_cache"] = project_cache_to_abc(
@@ -188,6 +196,9 @@ class HierarchicalContextManager:
                 hypothesis["c"],
                 state["cutoff_year"],
             )
+
+        if "agent_messages" in projected:
+            projected["agent_messages"] = messages_for_agent(state, role, limit=4)
 
         return projected  # type: ignore[return-value]
 
@@ -200,6 +211,7 @@ class HierarchicalContextManager:
             "regions": self.disclosure_regions(role, state),
             "visible_fields": sorted(projected.keys()),
             "visible_field_count": len(projected),
+            "visible_message_count": len(projected.get("agent_messages", [])),
         }
 
 
