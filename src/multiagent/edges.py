@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 from multiagent.state import DiscoveryState, Route
 
 
 LoopRoute = Literal["accept", "refine", "backtrack", "explore", "stop"]
+
+
+@dataclass(frozen=True)
+class LoopDecision:
+    """Final graph routing decision after architecture-level resource guards."""
+
+    semantic_route: Route
+    effective_route: LoopRoute
+    overridden: bool
+    reason: str
 
 
 def budget_exhausted(state: DiscoveryState) -> bool:
@@ -18,22 +29,35 @@ def refinement_budget_exhausted(state: DiscoveryState) -> bool:
     return state.get("refinement_round", 0) >= state.get("max_refinement_rounds", 3)
 
 
-def route_after_critique(state: DiscoveryState) -> LoopRoute:
-    """Apply graph-level loop policy after CriticAgent proposes a semantic route.
-
-    The agent decides what the scientific state suggests; this edge policy enforces
-    architecture-level resource constraints. Repeated unresolved refinement is converted
-    into backtracking so one weak ABC path cannot monopolize the discovery budget.
-    """
+def decide_after_critique(state: DiscoveryState) -> LoopDecision:
+    """Combine scientific Critic recommendation with architecture-level loop constraints."""
     route: Route = state.get("route", "explore")
 
     if route == "accept":
-        return "accept"
+        return LoopDecision(route, "accept", False, "scientific candidate accepted")
 
     if budget_exhausted(state):
-        return "stop"
+        return LoopDecision(
+            route,
+            "stop",
+            True,
+            "global iteration budget exhausted",
+        )
 
     if route == "refine" and refinement_budget_exhausted(state):
-        return "backtrack"
+        return LoopDecision(
+            route,
+            "backtrack",
+            True,
+            "local refinement budget exhausted; backtrack to another ABC path",
+        )
 
-    return route
+    return LoopDecision(route, route, False, "critic recommendation executed")
+
+
+def route_after_critique(state: DiscoveryState) -> LoopRoute:
+    """Return the already-recorded effective edge route, or compute it as a fallback."""
+    recorded = state.get("edge_route")
+    if recorded in {"accept", "refine", "backtrack", "explore", "stop"}:
+        return recorded  # type: ignore[return-value]
+    return decide_after_critique(state).effective_route
