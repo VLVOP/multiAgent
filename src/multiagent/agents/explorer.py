@@ -29,14 +29,19 @@ class ExplorerAgent:
                     paths.append(candidate)
         return paths
 
-    def _online_paths(self, state: DiscoveryState) -> tuple[list[list[str]], list[dict[str, Any]]]:
+    def _online_paths(
+        self,
+        state: DiscoveryState,
+    ) -> tuple[list[list[str]], list[dict[str, Any]], dict[str, int]]:
         target = state["target_entity"]
         cutoff = state["cutoff_year"]
         failed = {tuple(path) for path in state.get("failed_paths", [])}
+        usage = {"expand_entity": 0}
 
         first_hop = expand_entity.invoke(
             {"entity": target, "before_year": cutoff, "max_articles": 40, "top_k": 6}
         )
+        usage["expand_entity"] += 1
         paths: list[list[str]] = []
         observations: list[dict[str, Any]] = []
 
@@ -48,6 +53,7 @@ class ExplorerAgent:
             second_hop = expand_entity.invoke(
                 {"entity": b, "before_year": cutoff, "max_articles": 30, "top_k": 5}
             )
+            usage["expand_entity"] += 1
             for c_item in second_hop[:4]:
                 c = str(c_item.get("entity") or c_item.get("name") or "").strip()
                 if not c or c.lower() in {target.lower(), b.lower()}:
@@ -64,15 +70,16 @@ class ExplorerAgent:
             if key not in seen:
                 unique.append(path)
                 seen.add(key)
-        return unique, observations
+        return unique, observations, usage
 
     def run(self, state: DiscoveryState) -> dict[str, Any]:
         observations: list[dict[str, Any]] = []
         paths: list[list[str]] = []
+        tool_usage: dict[str, int] = {}
 
         if online_tools_enabled():
             try:
-                paths, observations = self._online_paths(state)
+                paths, observations, tool_usage = self._online_paths(state)
             except Exception as exc:
                 observations.append({"tool_error": repr(exc)})
 
@@ -101,4 +108,8 @@ class ExplorerAgent:
                         path for i, path in enumerate(paths) if i not in used
                     ]
 
-        return {"entity_paths": paths, "exploration_observations": observations}
+        return {
+            "entity_paths": paths,
+            "exploration_observations": observations,
+            "_tool_usage_delta": tool_usage,
+        }
