@@ -9,25 +9,31 @@ LoopRoute = Literal["accept", "refine", "backtrack", "explore", "stop"]
 
 
 def budget_exhausted(state: DiscoveryState) -> bool:
-    """Return whether the explicit loop budget has been exhausted."""
+    """Return whether the explicit global loop budget has been exhausted."""
     return state.get("iteration", 0) >= state.get("max_iterations", 5)
 
 
-def route_after_critique(state: DiscoveryState) -> LoopRoute:
-    """Route the post-critique loop without changing the graph topology.
+def refinement_budget_exhausted(state: DiscoveryState) -> bool:
+    """Return whether the current hypothesis has consumed its local refine budget."""
+    return state.get("refinement_round", 0) >= state.get("max_refinement_rounds", 3)
 
-    CriticAgent proposes one of the semantic LBD routes. This edge policy applies
-    graph-level safety constraints such as the explicit loop budget before the
-    next node is selected.
+
+def route_after_critique(state: DiscoveryState) -> LoopRoute:
+    """Apply graph-level loop policy after CriticAgent proposes a semantic route.
+
+    The agent decides what the scientific state suggests; this edge policy enforces
+    architecture-level resource constraints. Repeated unresolved refinement is converted
+    into backtracking so one weak ABC path cannot monopolize the discovery budget.
     """
     route: Route = state.get("route", "explore")
 
-    # A valid accepted discovery should terminate immediately rather than be
-    # rejected merely because the budget is also exhausted at this step.
     if route == "accept":
         return "accept"
 
     if budget_exhausted(state):
         return "stop"
+
+    if route == "refine" and refinement_budget_exhausted(state):
+        return "backtrack"
 
     return route
