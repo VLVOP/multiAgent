@@ -21,6 +21,8 @@ P(D_i | A, B, C, S_t, a_t)
 
 The router can predict multiple evidence dimensions, for example support, contradiction, bridge relevance, and novelty sensitivity, then select Top-K evidence for expensive LLM reasoning.
 
+The intended advantage is **lightweight and fast routing**: biomedical document embeddings can be precomputed and cached, while online inference only encodes the current discovery state and applies a small trainable routing head (for example a small attention/MLP module). Expensive LLM reasoning is therefore reserved for high-value evidence rather than every retrieved document.
+
 ### 2. Cache-aware Sparse Discovery Policy
 
 Introduce an LBD-specific evidence cache keyed by temporally grounded entity relations, for example:
@@ -43,6 +45,8 @@ A useful objective is to trade expected scientific discovery gain against comput
 ```text
 a_t = argmax_a ExpectedDiscoveryGain(a | S_t) - lambda * Cost(a)
 ```
+
+This is especially important in iterative LBD loops, where VERIFY -> CRITIQUE -> REFINE -> VERIFY can otherwise repeat the same retrieval and verification work. Reflection can guide the policy by identifying which relation is strong, weak, contradictory, or unresolved, after which the policy reallocates computation instead of redoing already-solved work.
 
 ### 3. Infrastructure-inspired Sparse Computation
 
@@ -156,62 +160,196 @@ Useful communication-efficiency metrics include:
 
 Natural baselines include full shared context, free-form A2A, structured A2A without routing, and structured sparse A2A.
 
-### 6. Dual-layer Progressive Context Disclosure
+### 6. Hierarchical Progressive Context Disclosure
 
-Manage LLM context through **two-stage progressive disclosure** aligned with the system's two retrieval stores.
+The context design should not be restricted to a fixed two-layer scheme. Instead, organize available context into an **N-level hierarchy**, while treating progressive disclosure as a separate decision about what the current agent is allowed to see at a given step.
 
-Layer 1 exposes only compact, structured discovery context from Entity/Relation Retrieval, for example:
-
-```text
-ABC entities
-candidate relations
-relation confidence
-evidence counts
-known gaps
-uncertainty
-cache status
-topic profile
-```
-
-The model first reasons over this compressed relation-level view. Only when the current state reveals uncertainty, contradiction, novelty ambiguity, or an evidence gap does the system escalate to Layer 2.
-
-Layer 2 discloses fine-grained evidence from Document/Evidence Retrieval, for example:
+A possible hierarchy is:
 
 ```text
-PMIDs
-titles / abstracts
-support evidence
-counter evidence
-specific passages
-provenance
+L0: current ABC discovery state / goal / uncertainty / prior conclusions
+L1: entity-relation graph context, candidate paths, relation scores
+L2: relation-level evidence summaries, support/counter counts, confidence
+L3: document-level context, titles/abstracts/document cards
+L4: fine-grained passages, experimental details, provenance/raw observations
+...
+LN: deeper evidence or source-specific context if required
 ```
 
-The intended pipeline is:
+The key distinction is:
 
 ```text
-ABC State
-   -> Layer 1: Entity/Relation Context
-   -> LDA topic profile / coverage check
-   -> sufficient? yes -> reasoning
-                   no  -> Layer 2: Document/Evidence Context
-                           -> Evidence Router
-                           -> LDA diversity / redundancy control
-                           -> selected Top-K evidence
-                           -> LLM reasoning
+Select:     which information is worth retaining in the context store?
+Disclosure: which retained information should this agent see now?
 ```
 
-LDA is used across both layers for topic coverage, diversity, and redundancy control rather than primary semantic retrieval. The Evidence Router provides task-specific relevance, while progressive disclosure controls when expensive document-level evidence enters the context window.
+Thus the context store may already contain L0...LN, but an Explorer may only receive L0+L1, while a Verifier may start with L0+L1+L2 and request local L3/L4 evidence only when uncertainty, contradiction, novelty ambiguity, or an evidence gap appears.
 
-The intended effect is to reduce context length, duplicated evidence, unnecessary document loading, and repeated LLM attention over already-known information while preserving discovery quality.
-
-This context mechanism is closely tied to the dual retrieval design:
+Conceptually, a disclosure policy may be written as:
 
 ```text
-Entity/Relation Retrieval -> coarse discovery context
-Document/Evidence Retrieval -> fine-grained evidence context
+pi_ctx(level, region | S_t, a_t, uncertainty_t)
 ```
 
-and should be evaluated against full-context prompting, flat Top-K retrieval, one-stage RAG, and progressive disclosure without topic-aware management.
+Disclosure should be local rather than blindly expanding an entire layer. For example:
+
+```text
+Disclosure(L3, relation=B-C, docs={d1,d17,d31})
+Disclosure(L4, document=d31)
+```
+
+This mechanism addresses the combinatorial context explosion inherent in LBD:
+
+```text
+Entity -> Relation -> Path -> Evidence -> Document -> Passage
+```
+
+The two retrieval stores naturally populate different levels of this hierarchy:
+
+```text
+Entity/Relation Retrieval -> coarse discovery and relation context
+Document/Evidence Retrieval -> fine-grained evidence and document context
+```
+
+LDA supports topic coverage, diversity, and redundancy control within levels; the Evidence Router determines evidence relevance; progressive disclosure determines **when and how deeply** selected context should enter an agent's actual context window.
+
+A GSSC-style context pipeline can be used as the implementation skeleton:
+
+```text
+Retrieval
+  -> Gather
+  -> Select
+  -> Hierarchical Context Pool
+  -> Progressive Disclosure Gate
+  -> Structure
+  -> Compress
+  -> Agent
+```
+
+Compression must preserve evidence-critical content. Provenance, PMIDs, contradiction cues, negation, and critical evidence spans should not be aggressively generatively compressed.
+
+Useful evaluation dimensions include context tokens, average disclosure depth, layer-access frequency, redundancy, topic coverage, and discovery quality under fixed context budgets.
+
+### 7. Router Training and Temporal Agentic LBD Dataset
+
+The first trainable component should be the Evidence Router rather than the entire agent policy. Its core task is:
+
+```text
+f_theta(S_t, a_t, D_i) -> evidence score(s)
+```
+
+A lightweight implementation can use a frozen biomedical document encoder with precomputed/cached document embeddings, plus a small trainable state encoder and fusion/routing head. This keeps online routing substantially cheaper than asking a large LLM to inspect every candidate paper.
+
+#### Training instance
+
+A training example should be **state-conditioned**, not merely a query-document relevance pair:
+
+```text
+A = Migraine
+B = Vascular Tone
+C = Magnesium
+cutoff = 1981
+current_action = verify(B, C)
+candidate_document = PMID_xxx
+
+labels:
+  support
+  contradiction
+  bridge
+  novelty_relevance
+```
+
+The central idea is that relevance changes with the current action. A paper that is useful for verify(A,B) may be low-value for verify(B,C), even inside the same ABC episode.
+
+#### Multi-head routing target
+
+A shared router may predict several evidence dimensions:
+
+```text
+[s_support, s_counter, s_bridge, s_novelty]
+```
+
+The current action determines how these heads are combined. For example:
+
+```text
+verify(B,C)      -> support + counter relevance
+check_novelty    -> novelty relevance
+explore_bridge   -> bridge relevance
+```
+
+This provides an action-conditioned multi-task evidence router rather than multiple unrelated rerankers.
+
+#### Hard negatives
+
+Random PubMed negatives are too easy. The dataset should include at least:
+
+1. **Lexical hard negatives**: A/B/C terms appear but the target relation is unsupported.
+2. **Path hard negatives**: evidence belongs to another edge of the same ABC path, e.g. A-B evidence while verifying B-C.
+3. **Semantic hard negatives**: similar MeSH/entity types/topics but the relation is wrong.
+4. **Temporal hard negatives**: scientifically relevant evidence that appears only after the cutoff and therefore must not be usable in the historical discovery state.
+
+Hard negatives should be matched where possible on semantic type, frequency, graph degree, and temporal window so that the router cannot solve the task using trivial shortcuts.
+
+#### Temporal episode format
+
+Rather than storing only isolated query-document pairs, construct **Temporal Agentic LBD Episodes**:
+
+```text
+Episode
+├── A
+├── cutoff t
+├── candidate B
+├── candidate C
+├── ABC state S_t
+├── current action a_t
+├── retrieved candidate pool
+├── support evidence
+├── counter evidence
+├── hard negatives
+└── post-cutoff future evidence
+```
+
+The same episode format can later support Evidence Router training, disclosure-policy learning, cache-policy learning, and agent-routing experiments.
+
+#### Initial training objective
+
+A practical supervised starting point is:
+
+```text
+L = L_rank + lambda_1 * L_type + lambda_2 * L_temporal
+```
+
+where:
+
+- L_rank ranks useful evidence above hard negatives;
+- L_type supervises support/counter/bridge/novelty roles;
+- L_temporal penalizes use of post-cutoff evidence in historical states.
+
+RL is not required initially. A supervised router should first establish strong Top-K evidence quality and compute savings; more global discovery-gain/cost optimization can be explored later.
+
+#### Router evaluation
+
+Important baselines include:
+
+```text
+BM25 Top-K
+Dense Top-K
+Generic biomedical reranker
+State-agnostic learned reranker
+ABC-state-conditioned Router
+```
+
+Report both evidence/discovery quality and efficiency:
+
+```text
+Recall@K / MRR / nDCG / Evidence Precision
+LLM tokens
+number of documents passed to the LLM
+latency
+router inference cost
+```
+
+The intended result is a better quality-cost Pareto frontier: similar or better discovery quality while substantially reducing expensive evidence inspection.
 
 ### Current framing
 
@@ -219,15 +357,20 @@ A possible umbrella term is:
 
 **Sparse Agentic LBD**
 
-with two primary method contributions:
+with three primary method contributions:
 
-1. **ABC-State-Conditioned Evidence Routing**: decide which evidence is worth expensive reasoning.
-2. **Cache-Aware Sparse Discovery Policy**: decide what to retrieve, reuse, verify, explore, and how much compute to spend.
-
-A third tightly coupled context contribution is:
-
-3. **Dual-Layer Progressive Context Disclosure**: progressively expose relation-level and document-level context using the two retrieval stores, with topic-aware diversity/redundancy control.
+1. **ABC-State-Conditioned Evidence Routing**: use a lightweight, action-conditioned router to select evidence worth expensive reasoning and address evidence overload.
+2. **Reflection-Guided Cache-Aware Sparse Discovery Policy**: reduce iterative redundant computation by deciding what to retrieve, reuse, refine, or explore based on the evolving discovery state.
+3. **Demand-Driven Hierarchical Progressive Context Disclosure**: address combinatorial context explosion by organizing context into multiple levels and exposing deeper/local evidence only when the current agent needs it.
 
 Topic-aware LDA management and structured sparse A2A strengthen the same sparse-discovery story rather than being treated as disconnected standalone claims.
+
+The three corresponding problem statements are:
+
+```text
+Evidence Overload                  -> Lightweight ABC-aware Routing
+Iterative Redundant Computation    -> Cache-aware Sparse Discovery Policy
+Combinatorial Context Explosion    -> Hierarchical Progressive Disclosure
+```
 
 These ideas should be evaluated against full-retrieval/all-agent baselines, fixed Top-K, generic rerankers, no-cache, LRU/semantic-cache baselines, generic learned routers, communication-routing baselines, and flat/full-context prompting, while reporting discovery quality together with compute/tool/token/communication/context cost.
