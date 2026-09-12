@@ -1,5 +1,6 @@
 from multiagent.edges import route_after_critique
 from multiagent.graph import graph
+from multiagent.nodes import refine_node
 
 
 def test_route_after_critique_keeps_loop_branch_under_budget():
@@ -12,6 +13,25 @@ def test_route_after_critique_stops_when_budget_is_exhausted():
     assert route_after_critique(
         {"route": "backtrack", "iteration": 3, "max_iterations": 3}
     ) == "stop"
+
+
+def test_refine_node_translates_reflection_into_targeted_request():
+    result = refine_node(
+        {
+            "reflection": {
+                "issue": "B-C bridge evidence is incomplete",
+                "recommendation": "refine",
+                "refinement_target": "bc",
+            },
+            "refinement_round": 0,
+            "trace": [],
+        }
+    )
+
+    assert result["refinement_request"]["target"] == "bc"
+    assert result["refinement_request"]["top_k"] == 12
+    assert result["refinement_round"] == 1
+    assert result["trace"][-1] == "REFINE[bc]"
 
 
 def test_graph_exercises_backtrack_loop_then_accepts():
