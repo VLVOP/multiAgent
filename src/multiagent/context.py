@@ -13,15 +13,7 @@ ContextLevel = Literal[1, 2, 3]
 
 
 class HierarchicalContextManager:
-    """Project global discovery state into agent-specific hierarchical context views.
-
-    L1: global discovery control state.
-    L2: structured ABC/path/relation state.
-    L3: detailed verification/evidence state.
-
-    Hierarchy depth and local disclosure region are intentionally separate decisions:
-    a level may exist globally while only the disputed A-B, B-C, or A-C region is exposed.
-    """
+    """Project global discovery state into agent-specific hierarchical context views."""
 
     _L1_FIELDS = {
         "target_entity",
@@ -30,6 +22,9 @@ class HierarchicalContextManager:
         "max_iterations",
         "max_refinement_rounds",
         "termination_reason",
+        "context_mode",
+        "cache_enabled",
+        "a2a_enabled",
         "plan",
         "route",
     }
@@ -77,6 +72,7 @@ class HierarchicalContextManager:
             "refinement_request",
             "evidence_cache",
             "cache_stats",
+            "cache_enabled",
             "iteration",
             "agent_messages",
         },
@@ -90,14 +86,16 @@ class HierarchicalContextManager:
     }
 
     def disclosure_level(self, role: AgentRole, state: DiscoveryState) -> ContextLevel:
-        """Return the currently disclosed hierarchy depth for an agent."""
+        if state.get("context_mode", "hierarchical") == "full":
+            return 3
         level = self._DEFAULT_LEVEL[role]
         if level == 3 and not state.get("verification"):
             return 2
         return level
 
     def disclosure_regions(self, role: AgentRole, state: DiscoveryState) -> list[str]:
-        """Return local semantic regions exposed at the chosen hierarchy depth."""
+        if state.get("context_mode", "hierarchical") == "full":
+            return ["all"]
         if role == "planner":
             return ["global"]
         if role == "explorer":
@@ -139,7 +137,6 @@ class HierarchicalContextManager:
         verification: dict[str, object],
         regions: list[str],
     ) -> dict[str, object]:
-        """Keep global judgments while locally disclosing detailed evidence payloads."""
         summary_fields = {
             "ab_supported",
             "bc_supported",
@@ -171,7 +168,16 @@ class HierarchicalContextManager:
         return projected
 
     def project_state(self, role: AgentRole, state: DiscoveryState) -> DiscoveryState:
-        """Return the state subset visible to ``role`` at the current disclosure depth."""
+        """Return the state visible to one agent under the selected context ablation mode."""
+        if state.get("context_mode", "hierarchical") == "full":
+            # Instrumentation history is excluded even in the full-context baseline so the
+            # benchmark does not feed its own measurement logs back into the model.
+            return {
+                key: deepcopy(value)
+                for key, value in state.items()
+                if key != "context_access_log"
+            }  # type: ignore[return-value]
+
         level = self.disclosure_level(role, state)
         regions = self.disclosure_regions(role, state)
         allowed = self._fields_for_level(level) | self._REQUIRED_FIELDS[role]
@@ -203,7 +209,6 @@ class HierarchicalContextManager:
         return projected  # type: ignore[return-value]
 
     def view_metadata(self, role: AgentRole, state: DiscoveryState) -> dict[str, object]:
-        """Expose diagnostics for context/disclosure ablations."""
         projected = self.project_state(role, state)
         return {
             "agent": role,
