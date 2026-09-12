@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import Any
 
 from multiagent.agents.explorer import online_tools_enabled
@@ -36,12 +37,42 @@ class CriticAgent:
             return "refine", "B-C bridge evidence is incomplete", "bc"
         return "accept", "candidate is supported and not directly known", None
 
+    @staticmethod
+    def _counter_matches_current_path(
+        counter: dict[str, Any],
+        hypothesis: dict[str, Any],
+        cutoff: int,
+    ) -> bool:
+        ab = counter.get("ab") or {}
+        bc = counter.get("bc") or {}
+        return (
+            ab.get("entity_a") == hypothesis.get("a")
+            and ab.get("entity_b") == hypothesis.get("b")
+            and ab.get("before_year") == cutoff
+            and bc.get("entity_a") == hypothesis.get("b")
+            and bc.get("entity_b") == hypothesis.get("c")
+            and bc.get("before_year") == cutoff
+        )
+
     def _counter_evidence(self, state: DiscoveryState) -> dict[str, Any]:
         hypothesis = state.get("current_hypothesis")
-        if hypothesis is None or not online_tools_enabled():
+        if hypothesis is None:
             return {}
 
         cutoff = state["cutoff_year"]
+        previous_reflection = state.get("reflection") or {}
+        previous_counter = previous_reflection.get("counter_evidence")
+        if (
+            isinstance(previous_counter, dict)
+            and self._counter_matches_current_path(previous_counter, hypothesis, cutoff)
+        ):
+            reused = deepcopy(previous_counter)
+            reused["_reused"] = True
+            return reused
+
+        if not online_tools_enabled():
+            return {}
+
         try:
             ab = search_counter_evidence.invoke(
                 {
@@ -59,13 +90,14 @@ class CriticAgent:
                     "top_k": 5,
                 }
             )
-            return {"ab": ab, "bc": bc}
+            return {"ab": ab, "bc": bc, "_reused": False}
         except Exception as exc:
-            return {"tool_error": repr(exc)}
+            return {"tool_error": repr(exc), "_reused": False}
 
     def run(self, state: DiscoveryState) -> tuple[Route, dict[str, Any]]:
         route, issue, refinement_target = self._deterministic_route(state)
         counter = self._counter_evidence(state)
+        counter_reused = bool(counter.pop("_reused", False))
 
         ab_counter = bool(counter.get("ab", {}).get("counter_evidence_found"))
         bc_counter = bool(counter.get("bc", {}).get("counter_evidence_found"))
@@ -79,6 +111,7 @@ class CriticAgent:
             "recommendation": route,
             "rationale": "Verification- and counter-evidence-based critique.",
             "counter_evidence": counter,
+            "counter_evidence_reused": counter_reused,
         }
         if refinement_target is not None:
             reflection["refinement_target"] = refinement_target
@@ -120,7 +153,6 @@ class CriticAgent:
                 }
             )
 
-        # Hard LBD constraints override model preference and restore the deterministic target.
         hard_route, hard_issue, hard_target = self._deterministic_route(state)
         if hard_route in {"backtrack", "refine"}:
             route = hard_route
