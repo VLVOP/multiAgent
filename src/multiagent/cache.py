@@ -7,11 +7,24 @@ from typing import Any
 RelationEvidenceCache = dict[str, dict[str, Any]]
 
 
+def _normalize_entity(entity: str) -> str:
+    return " ".join(entity.strip().lower().split())
+
+
 def relation_cache_key(entity_a: str, entity_b: str, before_year: int) -> str:
     """Build a stable key for a temporally grounded directed entity relation."""
-    a = " ".join(entity_a.strip().lower().split())
-    b = " ".join(entity_b.strip().lower().split())
-    return f"{before_year}::{a}::{b}"
+    return (
+        f"relation::{before_year}::"
+        f"{_normalize_entity(entity_a)}::{_normalize_entity(entity_b)}"
+    )
+
+
+def novelty_cache_key(entity_a: str, entity_c: str, before_year: int) -> str:
+    """Build a stable key for a temporally grounded A-C novelty decision."""
+    return (
+        f"novelty::{before_year}::"
+        f"{_normalize_entity(entity_a)}::{_normalize_entity(entity_c)}"
+    )
 
 
 def get_relation_entry(
@@ -24,6 +37,16 @@ def get_relation_entry(
     return deepcopy(entry) if entry is not None else None
 
 
+def get_novelty_entry(
+    cache: RelationEvidenceCache,
+    entity_a: str,
+    entity_c: str,
+    before_year: int,
+) -> dict[str, Any] | None:
+    entry = cache.get(novelty_cache_key(entity_a, entity_c, before_year))
+    return deepcopy(entry) if entry is not None else None
+
+
 def relation_entry_resolved(entry: dict[str, Any] | None) -> bool:
     if not entry:
         return False
@@ -31,9 +54,22 @@ def relation_entry_resolved(entry: dict[str, Any] | None) -> bool:
     return verification.get("relation_supported") is not None
 
 
+def novelty_entry_resolved(entry: dict[str, Any] | None) -> bool:
+    if not entry:
+        return False
+    novelty = entry.get("novelty") or {}
+    return novelty.get("direct_relation_known") is not None
+
+
 def relation_entry_covers(entry: dict[str, Any] | None, top_k: int) -> bool:
     """Return whether cached semantic verification is resolved at the requested depth."""
     if not relation_entry_resolved(entry):
+        return False
+    return int(entry.get("top_k", 0)) >= max(0, int(top_k))
+
+
+def novelty_entry_covers(entry: dict[str, Any] | None, top_k: int) -> bool:
+    if not novelty_entry_resolved(entry):
         return False
     return int(entry.get("top_k", 0)) >= max(0, int(top_k))
 
@@ -53,6 +89,7 @@ def put_relation_verification(
 
     updated = deepcopy(cache)
     updated[key] = {
+        "kind": "relation",
         "key": key,
         "entity_a": entity_a,
         "entity_b": entity_b,
@@ -69,6 +106,37 @@ def put_relation_verification(
     return updated
 
 
+def put_novelty_decision(
+    cache: RelationEvidenceCache,
+    novelty: dict[str, Any],
+    *,
+    top_k: int,
+    iteration: int,
+) -> RelationEvidenceCache:
+    entity_a = str(novelty.get("entity_a", ""))
+    entity_c = str(novelty.get("entity_c", ""))
+    before_year = int(novelty.get("before_year", 0))
+    key = novelty_cache_key(entity_a, entity_c, before_year)
+
+    updated = deepcopy(cache)
+    updated[key] = {
+        "kind": "novelty",
+        "key": key,
+        "entity_a": entity_a,
+        "entity_c": entity_c,
+        "before_year": before_year,
+        "top_k": max(0, int(top_k)),
+        "direct_relation_known": novelty.get("direct_relation_known"),
+        "novel": novelty.get("novel"),
+        "confidence": novelty.get("confidence", 0.0),
+        "known_relation_pmids": list(novelty.get("known_relation_pmids", [])),
+        "evidence_count": len(novelty.get("evidence", [])),
+        "updated_iteration": int(iteration),
+        "novelty": deepcopy(novelty),
+    }
+    return updated
+
+
 def relevant_relation_keys(
     entity_a: str,
     entity_b: str,
@@ -79,7 +147,7 @@ def relevant_relation_keys(
     return {
         relation_cache_key(entity_a, entity_b, before_year),
         relation_cache_key(entity_b, entity_c, before_year),
-        relation_cache_key(entity_a, entity_c, before_year),
+        novelty_cache_key(entity_a, entity_c, before_year),
     }
 
 
@@ -90,6 +158,6 @@ def project_cache_to_abc(
     entity_c: str,
     before_year: int,
 ) -> RelationEvidenceCache:
-    """Project a global relation cache onto the current ABC neighborhood."""
+    """Project a global evidence cache onto the current ABC neighborhood."""
     keys = relevant_relation_keys(entity_a, entity_b, entity_c, before_year)
     return {key: deepcopy(value) for key, value in cache.items() if key in keys}
