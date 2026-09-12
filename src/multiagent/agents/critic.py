@@ -57,7 +57,7 @@ class CriticAgent:
     def _counter_evidence(self, state: DiscoveryState) -> dict[str, Any]:
         hypothesis = state.get("current_hypothesis")
         if hypothesis is None:
-            return {}
+            return {"_tool_calls": 0}
 
         cutoff = state["cutoff_year"]
         previous_reflection = state.get("reflection") or {}
@@ -69,10 +69,11 @@ class CriticAgent:
         ):
             reused = deepcopy(previous_counter)
             reused["_reused"] = True
+            reused["_tool_calls"] = 0
             return reused
 
         if not online_tools_enabled():
-            return {}
+            return {"_tool_calls": 0}
 
         try:
             ab = search_counter_evidence.invoke(
@@ -91,14 +92,15 @@ class CriticAgent:
                     "top_k": 5,
                 }
             )
-            return {"ab": ab, "bc": bc, "_reused": False}
+            return {"ab": ab, "bc": bc, "_reused": False, "_tool_calls": 2}
         except Exception as exc:
-            return {"tool_error": repr(exc), "_reused": False}
+            return {"tool_error": repr(exc), "_reused": False, "_tool_calls": 0}
 
     def run(self, state: DiscoveryState) -> tuple[Route, dict[str, Any]]:
         route, issue, refinement_target = self._deterministic_route(state)
         counter = self._counter_evidence(state)
         counter_reused = bool(counter.pop("_reused", False))
+        tool_calls = int(counter.pop("_tool_calls", 0))
 
         ab_counter = bool(counter.get("ab", {}).get("counter_evidence_found"))
         bc_counter = bool(counter.get("bc", {}).get("counter_evidence_found"))
@@ -113,6 +115,7 @@ class CriticAgent:
             "rationale": "Verification- and counter-evidence-based critique.",
             "counter_evidence": counter,
             "counter_evidence_reused": counter_reused,
+            "_tool_usage_delta": {"search_counter_evidence": tool_calls},
         }
         if refinement_target is not None:
             reflection["refinement_target"] = refinement_target
