@@ -48,6 +48,8 @@ def _emit(
     state: DiscoveryState,
     message: dict[str, Any],
 ) -> DiscoveryState:
+    if not state.get("a2a_enabled", True):
+        return state
     messages, stats = append_message(state, message)
     return {**state, "agent_messages": messages, "communication_stats": stats}
 
@@ -59,6 +61,9 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
         **state,
         "iteration": state.get("iteration", 0),
         "max_refinement_rounds": state.get("max_refinement_rounds", 3),
+        "context_mode": state.get("context_mode", "hierarchical"),
+        "cache_enabled": state.get("cache_enabled", True),
+        "a2a_enabled": state.get("a2a_enabled", True),
         "termination_reason": None,
         "plan": plan,
         "frontier": [state["target_entity"]],
@@ -169,7 +174,7 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
     cache_refs: list[str] = []
     if len(path) == 3:
         local_keys = relevant_relation_keys(path[0], path[1], path[2], state["cutoff_year"])
-        cache_refs = [key for key in local_keys if key in evidence_cache]
+        cache_refs = sorted(key for key in local_keys if key in evidence_cache)
 
     confidences: list[float] = []
     for detail_key in ("ab_verification", "bc_verification", "ac_novelty"):
@@ -222,7 +227,13 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
         "trace": _trace(state, "CRITIQUE"),
     }
 
-    dst = "verifier" if route == "refine" else "explorer" if route in {"backtrack", "explore"} else "control"
+    dst = (
+        "verifier"
+        if route == "refine"
+        else "explorer"
+        if route in {"backtrack", "explore"}
+        else "control"
+    )
     requested_action = {
         "refine": "refine_verification",
         "backtrack": "backtrack_and_explore",
