@@ -5,7 +5,13 @@ from multiagent.nodes import refine_node
 
 def test_route_after_critique_keeps_loop_branch_under_budget():
     assert route_after_critique(
-        {"route": "refine", "iteration": 1, "max_iterations": 3}
+        {
+            "route": "refine",
+            "iteration": 1,
+            "max_iterations": 3,
+            "refinement_round": 1,
+            "max_refinement_rounds": 3,
+        }
     ) == "refine"
 
 
@@ -13,6 +19,18 @@ def test_route_after_critique_stops_when_budget_is_exhausted():
     assert route_after_critique(
         {"route": "backtrack", "iteration": 3, "max_iterations": 3}
     ) == "stop"
+
+
+def test_route_after_critique_backtracks_after_repeated_refinement():
+    assert route_after_critique(
+        {
+            "route": "refine",
+            "iteration": 2,
+            "max_iterations": 10,
+            "refinement_round": 3,
+            "max_refinement_rounds": 3,
+        }
+    ) == "backtrack"
 
 
 def test_refine_node_translates_reflection_into_targeted_request():
