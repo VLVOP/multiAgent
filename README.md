@@ -205,3 +205,12 @@ uv run pytest -q
 ```
 
 Without a configured LLM API key, semantic relation judgments remain unresolved rather than being inferred from co-occurrence. The mock graph remains available for deterministic orchestration tests.
+
+## Codex handoff
+
+Before delegating repository work to Codex, have it read:
+
+- `AGENTS.md` for repository-level scientific and engineering constraints;
+- `docs/CODEX_HANDOFF.md` for the ordered autonomous engineering queue and explicit stop condition.
+
+Codex may continue architecture engineering, tests, instrumentation, refactoring, and experiment tooling, but it must stop before real dataset construction, frozen corpus creation, RAG/retrieval indexing, hard-negative mining, or learned Router training. That boundary requires an explicit research-design decision first.
