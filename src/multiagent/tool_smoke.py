@@ -5,11 +5,12 @@ import json
 
 from dotenv import load_dotenv
 
-from multiagent.tools.ncbi import NCBIClient
+from multiagent.tools.agent_tools import expand_entity, resolve_entity, search_literature
+from multiagent.tools.runtime import get_backend
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Smoke-test the online biomedical tool layer")
+    parser = argparse.ArgumentParser(description="Smoke-test the biomedical LBD tool layer")
     parser.add_argument("--query", default="migraine magnesium")
     parser.add_argument("--cutoff", type=int, default=1985)
     parser.add_argument("--entity", default="Migraine")
@@ -21,25 +22,27 @@ def main() -> None:
     load_dotenv()
     args = _parse_args()
 
-    with NCBIClient() as client:
-        papers = [
-            article.to_dict()
-            for article in client.search_pubmed(args.query, args.cutoff, args.top_k)
-        ]
-        mesh = [concept.to_dict() for concept in client.search_mesh(args.entity, args.top_k)]
-        neighbors = [
-            neighbor.to_dict()
-            for neighbor in client.expand_entity_via_mesh(
-                args.entity,
-                args.cutoff,
-                max_articles=max(10, args.top_k * 5),
-                top_k=args.top_k,
-            )
-        ]
+    papers = search_literature.invoke(
+        {"query": args.query, "before_year": args.cutoff, "top_k": args.top_k}
+    )
+    entities = resolve_entity.invoke({"term": args.entity, "top_k": args.top_k})
+    neighbors = expand_entity.invoke(
+        {
+            "entity": args.entity,
+            "before_year": args.cutoff,
+            "max_articles": max(10, args.top_k * 5),
+            "top_k": args.top_k,
+        }
+    )
 
     print(
         json.dumps(
-            {"pubmed": papers, "mesh": mesh, "entity_neighbors": neighbors},
+            {
+                "backend": get_backend().backend_name,
+                "literature": papers,
+                "resolved_entities": entities,
+                "entity_neighbors": neighbors,
+            },
             ensure_ascii=False,
             indent=2,
         )
