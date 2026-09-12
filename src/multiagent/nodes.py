@@ -27,6 +27,8 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
         "exploration_observations": [],
         "hypotheses": [],
         "failed_paths": [],
+        "refinement_request": None,
+        "refinement_round": 0,
         "trace": _trace(state, "PLAN"),
     }
 
@@ -51,6 +53,8 @@ def hypothesize_node(state: DiscoveryState) -> DiscoveryState:
         **state,
         "current_hypothesis": hypothesis,
         "hypotheses": hypotheses,
+        "refinement_request": None,
+        "refinement_round": 0,
         "trace": _trace(state, "HYPOTHESIZE"),
     }
 
@@ -60,6 +64,7 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
     return {
         **state,
         "verification": verification,
+        "refinement_request": None,
         "trace": _trace(state, "VERIFY"),
     }
 
@@ -86,15 +91,26 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def refine_node(state: DiscoveryState) -> DiscoveryState:
-    """Deterministic state-control node; not an Agent.
+    """Translate Critic diagnosis into a targeted request for the next verification pass."""
+    reflection = state.get("reflection") or {}
+    target = reflection.get("refinement_target", "both")
+    refinement_round = state.get("refinement_round", 0) + 1
 
-    For now it lowers confidence slightly before re-verification so the loop remains explicit.
-    A dedicated hypothesis-repair policy can be introduced later without changing graph topology.
-    """
-    h = state.get("current_hypothesis")
-    if h is not None:
-        h = {**h, "score": max(0.0, float(h.get("score", 0.5)) - 0.05)}
-    return {**state, "current_hypothesis": h, "trace": _trace(state, "REFINE")}
+    # Increase evidence depth gradually rather than repeating the exact same verification call.
+    top_k = min(32, 8 + 4 * refinement_round)
+    request = {
+        "target": target,
+        "reason": str(reflection.get("issue", "verification needs refinement")),
+        "top_k": top_k,
+        "round": refinement_round,
+    }
+
+    return {
+        **state,
+        "refinement_request": request,
+        "refinement_round": refinement_round,
+        "trace": _trace(state, f"REFINE[{target}]"),
+    }
 
 
 def backtrack_node(state: DiscoveryState) -> DiscoveryState:
@@ -108,5 +124,7 @@ def backtrack_node(state: DiscoveryState) -> DiscoveryState:
         **state,
         "failed_paths": failed_paths,
         "current_hypothesis": None,
+        "refinement_request": None,
+        "refinement_round": 0,
         "trace": _trace(state, "BACKTRACK"),
     }
