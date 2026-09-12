@@ -63,7 +63,8 @@ class CriticAgent:
         previous_reflection = state.get("reflection") or {}
         previous_counter = previous_reflection.get("counter_evidence")
         if (
-            isinstance(previous_counter, dict)
+            state.get("cache_enabled", True)
+            and isinstance(previous_counter, dict)
             and self._counter_matches_current_path(previous_counter, hypothesis, cutoff)
         ):
             reused = deepcopy(previous_counter)
