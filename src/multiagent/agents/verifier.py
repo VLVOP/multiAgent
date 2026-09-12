@@ -27,6 +27,7 @@ class VerifierAgent:
                 "bc_supported": False,
                 "ac_already_known": False,
                 "ac_novelty_resolved": True,
+                "_tool_usage_delta": {},
             }
         cutoff = state["cutoff_year"]
         return {
@@ -35,6 +36,7 @@ class VerifierAgent:
             "ac_already_known": check_direct_link(h["a"], h["c"], cutoff),
             "ac_novelty_resolved": True,
             "mode": "mock",
+            "_tool_usage_delta": {},
         }
 
     @staticmethod
@@ -54,6 +56,7 @@ class VerifierAgent:
                 "bc_supported": False,
                 "ac_already_known": False,
                 "ac_novelty_resolved": False,
+                "_tool_usage_delta": {},
             }
 
         cutoff = state["cutoff_year"]
@@ -66,6 +69,7 @@ class VerifierAgent:
 
         cache = dict(state.get("evidence_cache", {})) if cache_enabled else {}
         stats = self._stats(state)
+        tool_usage = {"verify_relation": 0, "check_novelty": 0}
 
         def resolve_relation(
             entity_a: str,
@@ -73,7 +77,7 @@ class VerifierAgent:
             previous_result: dict[str, Any],
             required_top_k: int,
         ) -> dict[str, Any]:
-            nonlocal cache, stats
+            nonlocal cache, stats, tool_usage
             entry = (
                 get_relation_entry(cache, entity_a, entity_b, cutoff)
                 if cache_enabled
@@ -100,6 +104,7 @@ class VerifierAgent:
                     "top_k": effective_top_k,
                 }
             )
+            tool_usage["verify_relation"] += 1
             if cache_enabled:
                 cache = put_relation_verification(
                     cache,
@@ -116,7 +121,7 @@ class VerifierAgent:
             previous_result: dict[str, Any],
             required_top_k: int,
         ) -> dict[str, Any]:
-            nonlocal cache, stats
+            nonlocal cache, stats, tool_usage
             entry = (
                 get_novelty_entry(cache, entity_a, entity_c, cutoff)
                 if cache_enabled
@@ -143,6 +148,7 @@ class VerifierAgent:
                     "top_k": effective_top_k,
                 }
             )
+            tool_usage["check_novelty"] += 1
             if cache_enabled:
                 cache = put_novelty_decision(
                     cache,
@@ -194,6 +200,7 @@ class VerifierAgent:
             "mode": "online_targeted_verification" if target else "online_semantic_verification",
             "_evidence_cache": cache,
             "_cache_stats": stats,
+            "_tool_usage_delta": tool_usage,
         }
 
     def run(self, state: DiscoveryState) -> dict[str, Any]:
