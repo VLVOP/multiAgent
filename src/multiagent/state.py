@@ -47,6 +47,15 @@ class Reflection(TypedDict, total=False):
     counter_evidence: dict[str, Any]
 
 
+class ContextAccess(TypedDict, total=False):
+    agent: str
+    node: str
+    level: int
+    visible_fields: list[str]
+    visible_field_count: int
+    iteration: int
+
+
 class DiscoveryState(TypedDict, total=False):
     target_entity: str
     cutoff_year: int
@@ -66,5 +75,6 @@ class DiscoveryState(TypedDict, total=False):
     refinement_round: int
     failed_paths: list[list[str]]
 
+    context_access_log: list[ContextAccess]
     route: Route
     trace: list[str]
