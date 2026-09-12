@@ -62,8 +62,9 @@ class VerifierAgent:
         target = request.get("target")
         top_k = max(1, int(request.get("top_k", 8)))
         iteration = state.get("iteration", 0)
+        cache_enabled = state.get("cache_enabled", True)
 
-        cache = dict(state.get("evidence_cache", {}))
+        cache = dict(state.get("evidence_cache", {})) if cache_enabled else {}
         stats = self._stats(state)
 
         def resolve_relation(
@@ -73,8 +74,12 @@ class VerifierAgent:
             required_top_k: int,
         ) -> dict[str, Any]:
             nonlocal cache, stats
-            entry = get_relation_entry(cache, entity_a, entity_b, cutoff)
-            if relation_entry_covers(entry, required_top_k):
+            entry = (
+                get_relation_entry(cache, entity_a, entity_b, cutoff)
+                if cache_enabled
+                else None
+            )
+            if cache_enabled and relation_entry_covers(entry, required_top_k):
                 stats["hits"] += 1
                 return dict(entry.get("verification", {}))
 
@@ -86,21 +91,23 @@ class VerifierAgent:
                 return previous_result
 
             stats["misses"] += 1
+            effective_top_k = max(1, required_top_k or 8)
             result = verify_relation.invoke(
                 {
                     "entity_a": entity_a,
                     "entity_b": entity_b,
                     "before_year": cutoff,
-                    "top_k": max(1, required_top_k or 8),
+                    "top_k": effective_top_k,
                 }
             )
-            cache = put_relation_verification(
-                cache,
-                result,
-                top_k=max(1, required_top_k or 8),
-                iteration=iteration,
-            )
-            stats["writes"] += 1
+            if cache_enabled:
+                cache = put_relation_verification(
+                    cache,
+                    result,
+                    top_k=effective_top_k,
+                    iteration=iteration,
+                )
+                stats["writes"] += 1
             return result
 
         def resolve_novelty(
@@ -110,8 +117,12 @@ class VerifierAgent:
             required_top_k: int,
         ) -> dict[str, Any]:
             nonlocal cache, stats
-            entry = get_novelty_entry(cache, entity_a, entity_c, cutoff)
-            if novelty_entry_covers(entry, required_top_k):
+            entry = (
+                get_novelty_entry(cache, entity_a, entity_c, cutoff)
+                if cache_enabled
+                else None
+            )
+            if cache_enabled and novelty_entry_covers(entry, required_top_k):
                 stats["hits"] += 1
                 return dict(entry.get("novelty", {}))
 
@@ -123,21 +134,23 @@ class VerifierAgent:
                 return previous_result
 
             stats["misses"] += 1
+            effective_top_k = max(1, required_top_k or 8)
             result = check_novelty.invoke(
                 {
                     "entity_a": entity_a,
                     "entity_c": entity_c,
                     "before_year": cutoff,
-                    "top_k": max(1, required_top_k or 8),
+                    "top_k": effective_top_k,
                 }
             )
-            cache = put_novelty_decision(
-                cache,
-                result,
-                top_k=max(1, required_top_k or 8),
-                iteration=iteration,
-            )
-            stats["writes"] += 1
+            if cache_enabled:
+                cache = put_novelty_decision(
+                    cache,
+                    result,
+                    top_k=effective_top_k,
+                    iteration=iteration,
+                )
+                stats["writes"] += 1
             return result
 
         ab_depth = top_k if target in {None, "ab", "both", "counter"} else 0
