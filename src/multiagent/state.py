@@ -5,6 +5,7 @@ from typing import Any, Literal, TypedDict
 
 Route = Literal["accept", "refine", "backtrack", "explore"]
 RefinementTarget = Literal["ab", "bc", "both", "ac_novelty", "counter"]
+ContextMode = Literal["hierarchical", "full"]
 
 
 class Hypothesis(TypedDict, total=False):
@@ -93,6 +94,10 @@ class DiscoveryState(TypedDict, total=False):
     max_iterations: int
     max_refinement_rounds: int
     termination_reason: str | None
+
+    context_mode: ContextMode
+    cache_enabled: bool
+    a2a_enabled: bool
 
     plan: dict[str, Any]
     frontier: list[str]
