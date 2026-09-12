@@ -10,6 +10,7 @@ from multiagent.communication import (
     make_discovery_message,
 )
 from multiagent.context import AgentRole, context_manager
+from multiagent.edges import decide_after_critique
 from multiagent.instrumentation import empty_tool_usage, merge_tool_usage
 from multiagent.state import DiscoveryState
 
@@ -224,7 +225,7 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
 
 def critique_node(state: DiscoveryState) -> DiscoveryState:
     view, access_log = _agent_view(state, "critic", "CRITIQUE")
-    route, reflection = critic_agent.run(view)
+    semantic_route, reflection = critic_agent.run(view)
     tool_delta = reflection.pop("_tool_usage_delta", {})
     tool_usage = merge_tool_usage(
         state.get("tool_usage"),
@@ -232,20 +233,34 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
         delta=tool_delta,
     )
     iteration = state.get("iteration", 0) + 1
-    max_iterations = state.get("max_iterations", 5)
 
-    termination_reason: str | None = None
-    if route == "accept":
-        termination_reason = "accepted"
-    elif iteration >= max_iterations:
-        termination_reason = "max_iterations"
-
-    next_state: DiscoveryState = {
+    provisional: DiscoveryState = {
         **state,
         "iteration": iteration,
-        "termination_reason": termination_reason,
         "reflection": reflection,
-        "route": route,
+        "route": semantic_route,
+    }
+    decision = decide_after_critique(provisional)
+    effective_route = decision.effective_route
+
+    termination_reason: str | None = None
+    if effective_route == "accept":
+        termination_reason = "accepted"
+    elif effective_route == "stop":
+        termination_reason = "max_iterations"
+
+    loop_decision = {
+        "semantic_route": decision.semantic_route,
+        "effective_route": effective_route,
+        "overridden": decision.overridden,
+        "reason": decision.reason,
+    }
+
+    next_state: DiscoveryState = {
+        **provisional,
+        "termination_reason": termination_reason,
+        "edge_route": effective_route,
+        "loop_decision": loop_decision,
         "tool_usage": tool_usage,
         "context_access_log": access_log,
         "trace": _trace(state, "CRITIQUE"),
@@ -253,9 +268,9 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
 
     dst = (
         "verifier"
-        if route == "refine"
+        if effective_route == "refine"
         else "explorer"
-        if route in {"backtrack", "explore"}
+        if effective_route in {"backtrack", "explore"}
         else "control"
     )
     requested_action = {
@@ -263,7 +278,8 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
         "backtrack": "backtrack_and_explore",
         "explore": "explore_more",
         "accept": "terminate_accept",
-    }[route]
+        "stop": "terminate_budget",
+    }[effective_route]
     message = make_discovery_message(
         src="critic",
         dst=dst,
@@ -271,7 +287,10 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
         requested_action=requested_action,
         abc_path=_abc_path(next_state),
         payload={
-            "recommendation": route,
+            "semantic_recommendation": semantic_route,
+            "effective_recommendation": effective_route,
+            "loop_policy_overridden": decision.overridden,
+            "loop_policy_reason": decision.reason,
             "issue": reflection.get("issue"),
             "refinement_target": reflection.get("refinement_target"),
         },
