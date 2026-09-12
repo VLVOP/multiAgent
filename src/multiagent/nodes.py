@@ -10,6 +10,7 @@ from multiagent.communication import (
     make_discovery_message,
 )
 from multiagent.context import AgentRole, context_manager
+from multiagent.instrumentation import empty_tool_usage, merge_tool_usage
 from multiagent.state import DiscoveryState
 
 
@@ -61,6 +62,7 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
         **state,
         "iteration": state.get("iteration", 0),
         "max_refinement_rounds": state.get("max_refinement_rounds", 3),
+        "architecture_preset": state.get("architecture_preset", "custom"),
         "context_mode": state.get("context_mode", "hierarchical"),
         "cache_enabled": state.get("cache_enabled", True),
         "a2a_enabled": state.get("a2a_enabled", True),
@@ -75,6 +77,7 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
         "refinement_round": 0,
         "evidence_cache": {},
         "cache_stats": {"hits": 0, "misses": 0, "writes": 0},
+        "tool_usage": empty_tool_usage(),
         "agent_messages": [],
         "communication_stats": {
             "messages": 0,
@@ -101,11 +104,18 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
 def explore_node(state: DiscoveryState) -> DiscoveryState:
     view, access_log = _agent_view(state, "explorer", "EXPLORE")
     result = explorer_agent.run(view)
+    tool_delta = result.pop("_tool_usage_delta", {})
+    tool_usage = merge_tool_usage(
+        state.get("tool_usage"),
+        agent="explorer",
+        delta=tool_delta,
+    )
     paths = result.get("entity_paths", [])
     next_state: DiscoveryState = {
         **state,
         "entity_paths": paths,
         "exploration_observations": result.get("exploration_observations", []),
+        "tool_usage": tool_usage,
         "context_access_log": access_log,
         "trace": _trace(state, "EXPLORE"),
     }
@@ -159,6 +169,12 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
 
     evidence_cache = verification.pop("_evidence_cache", state.get("evidence_cache", {}))
     cache_stats = verification.pop("_cache_stats", state.get("cache_stats", {}))
+    tool_delta = verification.pop("_tool_usage_delta", {})
+    tool_usage = merge_tool_usage(
+        state.get("tool_usage"),
+        agent="verifier",
+        delta=tool_delta,
+    )
 
     next_state: DiscoveryState = {
         **state,
@@ -166,6 +182,7 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
         "refinement_request": None,
         "evidence_cache": evidence_cache,
         "cache_stats": cache_stats,
+        "tool_usage": tool_usage,
         "context_access_log": access_log,
         "trace": _trace(state, "VERIFY"),
     }
@@ -208,6 +225,12 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
 def critique_node(state: DiscoveryState) -> DiscoveryState:
     view, access_log = _agent_view(state, "critic", "CRITIQUE")
     route, reflection = critic_agent.run(view)
+    tool_delta = reflection.pop("_tool_usage_delta", {})
+    tool_usage = merge_tool_usage(
+        state.get("tool_usage"),
+        agent="critic",
+        delta=tool_delta,
+    )
     iteration = state.get("iteration", 0) + 1
     max_iterations = state.get("max_iterations", 5)
 
@@ -223,6 +246,7 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
         "termination_reason": termination_reason,
         "reflection": reflection,
         "route": route,
+        "tool_usage": tool_usage,
         "context_access_log": access_log,
         "trace": _trace(state, "CRITIQUE"),
     }
