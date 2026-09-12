@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
-from multiagent.state import DiscoveryState, Route
-
-
-LoopRoute = Literal["accept", "refine", "backtrack", "explore", "stop"]
+from multiagent.state import DiscoveryState, LoopRoute, Route
 
 
 @dataclass(frozen=True)
