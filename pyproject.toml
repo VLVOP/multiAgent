@@ -26,6 +26,7 @@ dev = [
 multiagent = "multiagent.main:main"
 multiagent-tools = "multiagent.tool_smoke:main"
 multiagent-mcp = "multiagent.mcp_server:main"
+multiagent-experiment = "multiagent.experiments:main"
 
 [build-system]
 requires = ["hatchling"]
