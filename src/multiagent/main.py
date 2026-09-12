@@ -6,7 +6,7 @@ import json
 from dotenv import load_dotenv
 
 from multiagent.graph import graph
-from multiagent.llm import smoke_test
+from multiagent.llm import llm_metadata, smoke_test
 
 
 def _parse_args() -> argparse.Namespace:
@@ -34,7 +34,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--smoke-test",
         action="store_true",
-        help="Test DeepSeek API connectivity and exit.",
+        help="Test configured LLM API connectivity and exit.",
     )
     return parser.parse_args()
 
@@ -56,6 +56,7 @@ def main() -> None:
         "context_mode": args.context_mode,
         "cache_enabled": not args.no_cache,
         "a2a_enabled": not args.no_a2a,
+        "llm_metadata": llm_metadata(),
         "trace": [],
     }
 
