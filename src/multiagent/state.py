@@ -98,6 +98,7 @@ class DiscoveryState(TypedDict, total=False):
     context_mode: ContextMode
     cache_enabled: bool
     a2a_enabled: bool
+    llm_metadata: dict[str, Any]
 
     plan: dict[str, Any]
     frontier: list[str]
