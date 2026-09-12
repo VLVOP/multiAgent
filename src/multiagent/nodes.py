@@ -20,6 +20,7 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
     return {
         **state,
         "iteration": state.get("iteration", 0),
+        "termination_reason": None,
         "plan": plan,
         "frontier": [state["target_entity"]],
         "entity_paths": [],
@@ -65,8 +66,19 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
 
 def critique_node(state: DiscoveryState) -> DiscoveryState:
     route, reflection = critic_agent.run(state)
+    iteration = state.get("iteration", 0) + 1
+    max_iterations = state.get("max_iterations", 5)
+
+    termination_reason: str | None = None
+    if route == "accept":
+        termination_reason = "accepted"
+    elif iteration >= max_iterations:
+        termination_reason = "max_iterations"
+
     return {
         **state,
+        "iteration": iteration,
+        "termination_reason": termination_reason,
         "reflection": reflection,
         "route": route,
         "trace": _trace(state, "CRITIQUE"),
@@ -96,6 +108,5 @@ def backtrack_node(state: DiscoveryState) -> DiscoveryState:
         **state,
         "failed_paths": failed_paths,
         "current_hypothesis": None,
-        "iteration": state.get("iteration", 0) + 1,
         "trace": _trace(state, "BACKTRACK"),
     }
