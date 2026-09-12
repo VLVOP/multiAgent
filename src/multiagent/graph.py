@@ -15,7 +15,12 @@ from multiagent.state import DiscoveryState
 
 
 def route_after_critique(state: DiscoveryState) -> str:
-    return state.get("route", "explore")
+    route = state.get("route", "explore")
+    if route == "accept":
+        return "accept"
+    if state.get("iteration", 0) >= state.get("max_iterations", 5):
+        return "stop"
+    return route
 
 
 def build_graph():
@@ -43,6 +48,7 @@ def build_graph():
             "refine": "refine",
             "backtrack": "backtrack",
             "explore": "explore",
+            "stop": END,
         },
     )
 
