@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from multiagent.agents import CriticAgent, ExplorerAgent, HypothesisAgent, PlannerAgent, VerifierAgent
-from multiagent.context import context_manager
+from multiagent.context import AgentRole, context_manager
 from multiagent.state import DiscoveryState
 
 
@@ -16,8 +18,21 @@ def _trace(state: DiscoveryState, node: str) -> list[str]:
     return [*state.get("trace", []), node]
 
 
+def _agent_view(
+    state: DiscoveryState,
+    role: AgentRole,
+    node: str,
+) -> tuple[DiscoveryState, list[dict[str, Any]]]:
+    view = context_manager.project_state(role, state)
+    metadata = context_manager.view_metadata(role, state)
+    metadata.update({"node": node, "iteration": state.get("iteration", 0)})
+    access_log = [*state.get("context_access_log", []), metadata]
+    return view, access_log
+
+
 def plan_node(state: DiscoveryState) -> DiscoveryState:
-    plan = planner_agent.run(context_manager.project_state("planner", state))
+    view, access_log = _agent_view(state, "planner", "PLAN")
+    plan = planner_agent.run(view)
     return {
         **state,
         "iteration": state.get("iteration", 0),
@@ -30,22 +45,26 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
         "failed_paths": [],
         "refinement_request": None,
         "refinement_round": 0,
+        "context_access_log": access_log,
         "trace": _trace(state, "PLAN"),
     }
 
 
 def explore_node(state: DiscoveryState) -> DiscoveryState:
-    result = explorer_agent.run(context_manager.project_state("explorer", state))
+    view, access_log = _agent_view(state, "explorer", "EXPLORE")
+    result = explorer_agent.run(view)
     return {
         **state,
         "entity_paths": result.get("entity_paths", []),
         "exploration_observations": result.get("exploration_observations", []),
+        "context_access_log": access_log,
         "trace": _trace(state, "EXPLORE"),
     }
 
 
 def hypothesize_node(state: DiscoveryState) -> DiscoveryState:
-    hypothesis = hypothesis_agent.run(context_manager.project_state("hypothesis", state))
+    view, access_log = _agent_view(state, "hypothesis", "HYPOTHESIZE")
+    hypothesis = hypothesis_agent.run(view)
     hypotheses = list(state.get("hypotheses", []))
     if hypothesis is not None:
         hypotheses.append(hypothesis)
@@ -56,22 +75,26 @@ def hypothesize_node(state: DiscoveryState) -> DiscoveryState:
         "hypotheses": hypotheses,
         "refinement_request": None,
         "refinement_round": 0,
+        "context_access_log": access_log,
         "trace": _trace(state, "HYPOTHESIZE"),
     }
 
 
 def verify_node(state: DiscoveryState) -> DiscoveryState:
-    verification = verifier_agent.run(context_manager.project_state("verifier", state))
+    view, access_log = _agent_view(state, "verifier", "VERIFY")
+    verification = verifier_agent.run(view)
     return {
         **state,
         "verification": verification,
         "refinement_request": None,
+        "context_access_log": access_log,
         "trace": _trace(state, "VERIFY"),
     }
 
 
 def critique_node(state: DiscoveryState) -> DiscoveryState:
-    route, reflection = critic_agent.run(context_manager.project_state("critic", state))
+    view, access_log = _agent_view(state, "critic", "CRITIQUE")
+    route, reflection = critic_agent.run(view)
     iteration = state.get("iteration", 0) + 1
     max_iterations = state.get("max_iterations", 5)
 
@@ -87,6 +110,7 @@ def critique_node(state: DiscoveryState) -> DiscoveryState:
         "termination_reason": termination_reason,
         "reflection": reflection,
         "route": route,
+        "context_access_log": access_log,
         "trace": _trace(state, "CRITIQUE"),
     }
 
