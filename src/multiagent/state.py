@@ -27,6 +27,7 @@ class Verification(TypedDict, total=False):
     ab_verification: dict[str, Any]
     bc_verification: dict[str, Any]
     ac_novelty: dict[str, Any]
+    refinement_target: str | None
     mode: str
     rationale: str
     tool_error: str
@@ -51,9 +52,16 @@ class ContextAccess(TypedDict, total=False):
     agent: str
     node: str
     level: int
+    regions: list[str]
     visible_fields: list[str]
     visible_field_count: int
     iteration: int
+
+
+class CacheStats(TypedDict, total=False):
+    hits: int
+    misses: int
+    writes: int
 
 
 class DiscoveryState(TypedDict, total=False):
@@ -75,6 +83,8 @@ class DiscoveryState(TypedDict, total=False):
     refinement_round: int
     failed_paths: list[list[str]]
 
+    evidence_cache: dict[str, dict[str, Any]]
+    cache_stats: CacheStats
     context_access_log: list[ContextAccess]
     route: Route
     trace: list[str]
