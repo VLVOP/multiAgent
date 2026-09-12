@@ -45,6 +45,8 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
         "failed_paths": [],
         "refinement_request": None,
         "refinement_round": 0,
+        "evidence_cache": {},
+        "cache_stats": {"hits": 0, "misses": 0, "writes": 0},
         "context_access_log": access_log,
         "trace": _trace(state, "PLAN"),
     }
@@ -83,10 +85,16 @@ def hypothesize_node(state: DiscoveryState) -> DiscoveryState:
 def verify_node(state: DiscoveryState) -> DiscoveryState:
     view, access_log = _agent_view(state, "verifier", "VERIFY")
     verification = verifier_agent.run(view)
+
+    evidence_cache = verification.pop("_evidence_cache", state.get("evidence_cache", {}))
+    cache_stats = verification.pop("_cache_stats", state.get("cache_stats", {}))
+
     return {
         **state,
         "verification": verification,
         "refinement_request": None,
+        "evidence_cache": evidence_cache,
+        "cache_stats": cache_stats,
         "context_access_log": access_log,
         "trace": _trace(state, "VERIFY"),
     }
@@ -139,7 +147,7 @@ def refine_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def backtrack_node(state: DiscoveryState) -> DiscoveryState:
-    """Deterministic state-control node; mark the current ABC path as failed and loop."""
+    """Mark the current ABC path as failed while retaining reusable evidence cache entries."""
     h = state.get("current_hypothesis")
     failed_paths = list(state.get("failed_paths", []))
     if h is not None:
