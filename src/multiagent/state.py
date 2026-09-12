@@ -53,8 +53,10 @@ class Reflection(TypedDict, total=False):
 class ContextAccess(TypedDict, total=False):
     agent: str
     node: str
+    policy: str
     level: int
     regions: list[str]
+    reason: str
     visible_fields: list[str]
     visible_field_count: int
     visible_message_count: int
@@ -95,6 +97,7 @@ class DiscoveryState(TypedDict, total=False):
     max_refinement_rounds: int
     termination_reason: str | None
 
+    architecture_preset: str
     context_mode: ContextMode
     cache_enabled: bool
     a2a_enabled: bool
