@@ -69,6 +69,12 @@ class CacheStats(TypedDict, total=False):
     writes: int
 
 
+class ToolUsage(TypedDict, total=False):
+    total_calls: int
+    by_tool: dict[str, int]
+    by_agent: dict[str, dict[str, int]]
+
+
 class AgentMessage(TypedDict, total=False):
     src: str
     dst: str
@@ -117,6 +123,7 @@ class DiscoveryState(TypedDict, total=False):
 
     evidence_cache: dict[str, dict[str, Any]]
     cache_stats: CacheStats
+    tool_usage: ToolUsage
     context_access_log: list[ContextAccess]
 
     agent_messages: list[AgentMessage]
