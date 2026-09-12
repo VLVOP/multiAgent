@@ -53,6 +53,7 @@ def main() -> None:
         "iteration": 0,
         "max_iterations": args.max_iterations,
         "max_refinement_rounds": args.max_refinement_rounds,
+        "architecture_preset": "custom",
         "context_mode": args.context_mode,
         "cache_enabled": not args.no_cache,
         "a2a_enabled": not args.no_a2a,
