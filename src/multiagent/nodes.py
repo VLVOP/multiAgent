@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from multiagent.agents import CriticAgent, ExplorerAgent, HypothesisAgent, PlannerAgent, VerifierAgent
+from multiagent.context import context_manager
 from multiagent.state import DiscoveryState
 
 
@@ -16,7 +17,7 @@ def _trace(state: DiscoveryState, node: str) -> list[str]:
 
 
 def plan_node(state: DiscoveryState) -> DiscoveryState:
-    plan = planner_agent.run(state)
+    plan = planner_agent.run(context_manager.project_state("planner", state))
     return {
         **state,
         "iteration": state.get("iteration", 0),
@@ -34,7 +35,7 @@ def plan_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def explore_node(state: DiscoveryState) -> DiscoveryState:
-    result = explorer_agent.run(state)
+    result = explorer_agent.run(context_manager.project_state("explorer", state))
     return {
         **state,
         "entity_paths": result.get("entity_paths", []),
@@ -44,7 +45,7 @@ def explore_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def hypothesize_node(state: DiscoveryState) -> DiscoveryState:
-    hypothesis = hypothesis_agent.run(state)
+    hypothesis = hypothesis_agent.run(context_manager.project_state("hypothesis", state))
     hypotheses = list(state.get("hypotheses", []))
     if hypothesis is not None:
         hypotheses.append(hypothesis)
@@ -60,7 +61,7 @@ def hypothesize_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def verify_node(state: DiscoveryState) -> DiscoveryState:
-    verification = verifier_agent.run(state)
+    verification = verifier_agent.run(context_manager.project_state("verifier", state))
     return {
         **state,
         "verification": verification,
@@ -70,7 +71,7 @@ def verify_node(state: DiscoveryState) -> DiscoveryState:
 
 
 def critique_node(state: DiscoveryState) -> DiscoveryState:
-    route, reflection = critic_agent.run(state)
+    route, reflection = critic_agent.run(context_manager.project_state("critic", state))
     iteration = state.get("iteration", 0) + 1
     max_iterations = state.get("max_iterations", 5)
 
