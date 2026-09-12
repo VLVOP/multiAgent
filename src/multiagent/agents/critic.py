@@ -38,6 +38,18 @@ class CriticAgent:
         return "accept", "candidate is supported and not directly known", None
 
     @staticmethod
+    def _counter_search_ready(state: DiscoveryState) -> bool:
+        """Spend counter-evidence compute only on candidates that could otherwise be accepted."""
+        verification = state.get("verification", {})
+        return (
+            state.get("current_hypothesis") is not None
+            and verification.get("ab_supported") is True
+            and verification.get("bc_supported") is True
+            and verification.get("ac_already_known") is not True
+            and verification.get("ac_novelty_resolved", True) is not False
+        )
+
+    @staticmethod
     def _counter_matches_current_path(
         counter: dict[str, Any],
         hypothesis: dict[str, Any],
@@ -57,7 +69,10 @@ class CriticAgent:
     def _counter_evidence(self, state: DiscoveryState) -> dict[str, Any]:
         hypothesis = state.get("current_hypothesis")
         if hypothesis is None:
-            return {"_tool_calls": 0}
+            return {"_tool_calls": 0, "_skipped": "no_hypothesis"}
+
+        if not self._counter_search_ready(state):
+            return {"_tool_calls": 0, "_skipped": "candidate_not_ready_for_counter_check"}
 
         cutoff = state["cutoff_year"]
         previous_reflection = state.get("reflection") or {}
@@ -73,7 +88,7 @@ class CriticAgent:
             return reused
 
         if not online_tools_enabled():
-            return {"_tool_calls": 0}
+            return {"_tool_calls": 0, "_skipped": "online_tools_disabled"}
 
         try:
             ab = search_counter_evidence.invoke(
@@ -101,6 +116,7 @@ class CriticAgent:
         counter = self._counter_evidence(state)
         counter_reused = bool(counter.pop("_reused", False))
         tool_calls = int(counter.pop("_tool_calls", 0))
+        counter_skipped = counter.pop("_skipped", None)
 
         ab_counter = bool(counter.get("ab", {}).get("counter_evidence_found"))
         bc_counter = bool(counter.get("bc", {}).get("counter_evidence_found"))
@@ -115,6 +131,7 @@ class CriticAgent:
             "rationale": "Verification- and counter-evidence-based critique.",
             "counter_evidence": counter,
             "counter_evidence_reused": counter_reused,
+            "counter_evidence_skipped": counter_skipped,
             "_tool_usage_delta": {"search_counter_evidence": tool_calls},
         }
         if refinement_target is not None:
