@@ -4,6 +4,7 @@ from typing import Any, Literal, TypedDict
 
 
 Route = Literal["accept", "refine", "backtrack", "explore"]
+LoopRoute = Literal["accept", "refine", "backtrack", "explore", "stop"]
 RefinementTarget = Literal["ab", "bc", "both", "ac_novelty", "counter"]
 ContextMode = Literal["hierarchical", "full"]
 
@@ -48,6 +49,13 @@ class Reflection(TypedDict, total=False):
     refinement_target: RefinementTarget
     counter_evidence: dict[str, Any]
     counter_evidence_reused: bool
+
+
+class LoopDecisionState(TypedDict, total=False):
+    semantic_route: Route
+    effective_route: LoopRoute
+    overridden: bool
+    reason: str
 
 
 class ContextAccess(TypedDict, total=False):
@@ -130,4 +138,6 @@ class DiscoveryState(TypedDict, total=False):
     communication_stats: CommunicationStats
 
     route: Route
+    edge_route: LoopRoute
+    loop_decision: LoopDecisionState
     trace: list[str]
